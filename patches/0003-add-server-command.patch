@@ -1,0 +1,33 @@
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -183,6 +183,14 @@ enum Commands {
+     Profile {
+         #[arg(default_value = "")]
+         name: String,
+     },
++    /// Start HTTP server for mobile app connectivity
++    Server {
++        /// Port to bind on (default: 9876)
++        #[arg(short, long, default_value_t = 9876)]
++        port: u16,
++        /// Bind address (default: 127.0.0.1)
++        #[arg(short, long, default_value = "127.0.0.1")]
++        bind: String,
++    },
+     /// Start HTTP + WebSocket API server
+     #[cfg(feature = "web-api")]
+     Serve {
+@@ -935,6 +943,13 @@ async fn main() -> anyhow::Result<()> {
+                 }
+             }
+         }
++        Some(Commands::Server { port, .. }) => {
++            info!("Starting OpenShark HTTP server on port {}", port);
++            if let Err(e) = crate::gateway::http::start_server(config, port).await {
++                eprintln!("❌ HTTP server error: {}", e);
++                std::process::exit(1);
++            }
++        }
+         #[cfg(feature = "web-api")]
+         Some(Commands::Serve { addr }) => {
+             info!("Starting OpenShark API server on {}", addr);

@@ -1,0 +1,9 @@
+--- a/src/gateway/mod.rs
++++ b/src/gateway/mod.rs
+@@ -8,3 +8,5 @@
+ pub mod telegram;
+ pub mod unified_router;
+ pub mod session_branch;
++
++// HTTP Gateway for Mobile (Termux/Android standalone)
++pub mod http;
