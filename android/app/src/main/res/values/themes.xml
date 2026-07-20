@@ -1,7 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Main app theme -->
     <style name="Theme.OpenShark" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@color/deep_purple</item>
         <item name="android:navigationBarColor">@color/deep_purple</item>
         <item name="android:windowBackground">@color/background_dark</item>
+    </style>
+    
+    <!-- Splash screen theme (pre-Android 12) -->
+    <style name="Theme.OpenShark.Starting" parent="Theme.OpenShark">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
     </style>
 </resources>

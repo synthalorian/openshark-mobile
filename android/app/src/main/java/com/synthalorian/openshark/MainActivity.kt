@@ -18,6 +18,8 @@ import com.synthalorian.openshark.ui.theme.OpenSharkTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Switch from splash theme to main app theme
+        setTheme(R.style.Theme_OpenShark)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {

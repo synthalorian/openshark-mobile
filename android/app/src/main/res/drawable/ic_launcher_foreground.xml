@@ -4,7 +4,36 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Shark fin shape matching the openshark.png aesthetic -->
     <path
         android:fillColor="#FF7EDB"
-        android:pathData="M54,30 C38,30 30,42 30,54 C30,66 38,78 54,78 C70,78 78,66 78,54 C78,42 70,30 54,30 Z M54,38 C62,38 68,44 70,50 L54,50 L54,38 Z M54,58 L70,58 C68,64 62,70 54,70 C46,70 40,64 38,58 L54,58 Z"/>
+        android:pathData="M54,24
+            C54,24 42,32 38,48
+            C36,56 36,68 38,78
+            C40,84 44,88 48,88
+            C50,88 52,86 54,84
+            C56,86 58,88 60,88
+            C64,88 68,84 70,78
+            C72,68 72,56 70,48
+            C66,32 54,24 54,24Z
+            M48,46
+            C48,46 46,50 46,56
+            C46,62 48,66 48,66
+            C48,66 48,58 48,54
+            C48,50 48,46 48,46Z
+            M60,46
+            C60,46 62,50 62,56
+            C62,62 60,66 60,66
+            C60,66 60,58 60,54
+            C60,50 60,46 60,46Z"
+        android:strokeColor="#FFB3E5"
+        android:strokeWidth="1.5"/>
+    <!-- Highlight -->
+    <path
+        android:fillColor="#FFB3E5"
+        android:pathData="M54,28
+            C54,28 50,32 48,38
+            C46,44 46,50 46,56
+            C46,56 48,52 48,46
+            C48,40 50,34 54,28Z"/>
 </vector>
