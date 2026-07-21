@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.synthalorian.openshark.app-mergeDebugResources-63:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "/root/.gradle/caches/8.10.2/transforms/7b9dbd0bbadd602c83e17a6148227266/transformed/jetified-material3-release/res/values-v30/values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}

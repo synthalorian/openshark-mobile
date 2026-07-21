@@ -1,0 +1,90 @@
+version = "1.1.0"
+default_model = "gemma4:e2b"
+auto_route = false
+cost_limit_usd = 10.0
+
+[agent]
+name = "openshark-mobile"
+display_name = "OpenShark 🦈"
+role = "coding assistant"
+origin = "Termux on Android"
+purpose = "Ship code fast"
+tagline = "Let's build the future."
+tone = "Professional but friendly"
+style = "Concise and thorough"
+greeting = "Hey! Ready to code?"
+farewell = "See you next session!"
+emoji = "🦈"
+catchphrases = ["Let's do this!", "Ship it!"]
+behavioral_rules = [
+    "Always verify before claiming success",
+    "Show the code, don't just describe it",
+]
+
+[memory]
+db_path = "~/.config/openshark/memory.db"
+
+# ═══════════════════════════════════════════════════════════════
+# LOCAL PROVIDER — Ollama (offline, runs in Termux)
+# ═══════════════════════════════════════════════════════════════
+[providers.ollama]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+kind = "openai-compatible"
+
+[[providers.ollama.models]]
+name = "gemma4:e2b"
+context_length = 8192
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
+
+[[providers.ollama.models]]
+name = "gemma4:e4b"
+context_length = 8192
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
+
+[[providers.ollama.models]]
+name = "qwen3.5:0.8b"
+context_length = 32768
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat"]
+
+# ═══════════════════════════════════════════════════════════════
+# CLOUD PROVIDER — Kimi via OpenClaw Proxy
+# ═══════════════════════════════════════════════════════════════
+# The proxy runs alongside OpenClaw gateway and forwards
+# requests to Kimi API using OpenClaw's connection/auth.
+#
+# To start the proxy:
+#   cd openshark-mobile && bash scripts/start-proxy.sh
+#
+# The proxy reads your OpenClaw config for Kimi credentials.
+[providers.kimi]
+base_url = "http://127.0.0.1:9000/v1"
+api_key = "proxy"
+kind = "openai-compatible"
+
+[[providers.kimi.models]]
+name = "kimi-k3"
+context_length = 1000000
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
+
+[[providers.kimi.models]]
+name = "kimi-k2.5"
+context_length = 256000
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
+
+[[providers.kimi.models]]
+name = "kimi-k2"
+context_length = 200000
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat"]

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Shark fin shape matching the openshark.png aesthetic -->
+    <path
+        android:fillColor="#FF7EDB"
+        android:pathData="M54,24
+            C54,24 42,32 38,48
+            C36,56 36,68 38,78
+            C40,84 44,88 48,88
+            C50,88 52,86 54,84
+            C56,86 58,88 60,88
+            C64,88 68,84 70,78
+            C72,68 72,56 70,48
+            C66,32 54,24 54,24Z
+            M48,46
+            C48,46 46,50 46,56
+            C46,62 48,66 48,66
+            C48,66 48,58 48,54
+            C48,50 48,46 48,46Z
+            M60,46
+            C60,46 62,50 62,56
+            C62,62 60,66 60,66
+            C60,66 60,58 60,54
+            C60,50 60,46 60,46Z"
+        android:strokeColor="#FFB3E5"
+        android:strokeWidth="1.5"/>
+    <!-- Highlight -->
+    <path
+        android:fillColor="#FFB3E5"
+        android:pathData="M54,28
+            C54,28 50,32 48,38
+            C46,44 46,50 46,56
+            C46,56 48,52 48,46
+            C48,40 50,34 54,28Z"/>
+</vector>

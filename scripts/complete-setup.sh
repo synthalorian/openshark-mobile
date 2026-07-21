@@ -33,11 +33,11 @@ if [ -z "$TERMUX_VERSION" ] && [ ! -d "/data/data/com.termux" ]; then
     echo ""
 fi
 
-echo -e "${BLUE}Phase 1/4: Installing dependencies...${NC}"
+echo -e "${BLUE}Phase 1/5: Installing dependencies...${NC}"
 pkg update -y
-pkg install -y ollama curl git jq termux-api
+pkg install -y ollama curl git jq termux-api nodejs
 
-echo -e "${BLUE}Phase 2/4: Setting up Ollama...${NC}"
+echo -e "${BLUE}Phase 2/5: Setting up Ollama...${NC}"
 
 # Create startup script
 mkdir -p ~/.termux/boot
@@ -70,7 +70,7 @@ if ! pgrep -x ollama > /dev/null; then
     done
 fi
 
-echo -e "${BLUE}Phase 3/4: Downloading Gemma 4...${NC}"
+echo -e "${BLUE}Phase 3/5: Downloading Gemma 4...${NC}"
 echo -e "${YELLOW}This will download ~7GB. Ensure you have space and WiFi.${NC}"
 echo ""
 read -p "Download Gemma 4 E2B (2B params)? (y/N) " -n 1 -r
@@ -88,7 +88,18 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ Gemma 4 E4B ready${NC}"
 fi
 
-echo -e "${BLUE}Phase 4/4: Configuring OpenShark...${NC}"
+echo -e "${BLUE}Phase 4/5: Setting up Kimi Proxy...${NC}"
+
+# Copy proxy to local bin
+PROXY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../proxy" && pwd)"
+mkdir -p "$HOME/.local/bin"
+cp "$PROXY_DIR/kimi-proxy.js" "$HOME/.local/bin/"
+cp "$PROXY_DIR/proxy.sh" "$HOME/.local/bin/kimi-proxy"
+chmod +x "$HOME/.local/bin/kimi-proxy"
+
+echo -e "${GREEN}✓ Kimi proxy installed${NC}"
+
+echo -e "${BLUE}Phase 5/5: Configuring OpenShark...${NC}"
 
 # Create config
 mkdir -p ~/.config/openshark
@@ -139,17 +150,25 @@ cost_per_1k_input = 0.0
 cost_per_1k_output = 0.0
 capabilities = ["code", "chat", "analysis"]
 
-# Cloud providers (uncomment and add API key to use)
-# [providers.openai]
-# base_url = "https://api.openai.com/v1"
-# api_key = "${OPENAI_API_KEY}"
-# 
-# [[providers.openai.models]]
-# name = "gpt-4o"
-# context_length = 128000
-# cost_per_1k_input = 0.005
-# cost_per_1k_output = 0.015
-# capabilities = ["code", "chat", "analysis"]
+# Cloud — Kimi via OpenClaw Proxy (always-both mode)
+[providers.kimi]
+base_url = "http://127.0.0.1:9000/v1"
+api_key = "local-proxy"
+kind = "openai-compatible"
+
+[[providers.kimi.models]]
+name = "kimi-k3"
+context_length = 1000000
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
+
+[[providers.kimi.models]]
+name = "kimi-k2.5"
+context_length = 256000
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
 EOF
 
 echo -e "${GREEN}✓ Config created${NC}"
