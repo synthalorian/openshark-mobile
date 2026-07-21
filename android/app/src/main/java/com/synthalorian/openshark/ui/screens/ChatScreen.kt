@@ -1,5 +1,6 @@
 package com.synthalorian.openshark.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -41,13 +42,13 @@ fun ChatScreen(
     val currentModel by viewModel.currentModel.collectAsState()
     val agentMode by viewModel.agentMode.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
+    val isDiscovering by viewModel.isDiscovering.collectAsState()
     val activeAgent by viewModel.activeAgent.collectAsState()
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
 
     var showModelPicker by remember { mutableStateOf(false) }
     var showAgentModePicker by remember { mutableStateOf(false) }
-    var showToolApproval by remember { mutableStateOf(false) }
 
     // Auto-scroll to bottom
     LaunchedEffect(messages.size, messages.lastOrNull()?.content) {
@@ -68,7 +69,9 @@ fun ChatScreen(
                                 is ChatViewModel.ConnectionStatus.Connected -> 
                                     "● $currentModel"
                                 is ChatViewModel.ConnectionStatus.Connecting -> 
-                                    "Connecting..."
+                                    if (isDiscovering) "Auto-discovering..." else "Connecting..."
+                                is ChatViewModel.ConnectionStatus.Waiting ->
+                                    "⏳ Waiting for server..."
                                 is ChatViewModel.ConnectionStatus.Error -> 
                                     "● Offline"
                             },
@@ -76,6 +79,8 @@ fun ChatScreen(
                             color = when (connectionStatus) {
                                 is ChatViewModel.ConnectionStatus.Connected -> 
                                     MaterialTheme.colorScheme.primary
+                                is ChatViewModel.ConnectionStatus.Waiting ->
+                                    MaterialTheme.colorScheme.tertiary
                                 else -> MaterialTheme.colorScheme.error
                             }
                         )
@@ -105,9 +110,20 @@ fun ChatScreen(
                         )
                     }
                     
+                    // Reconnect / Discover button
+                    if (connectionStatus !is ChatViewModel.ConnectionStatus.Connected) {
+                        IconButton(onClick = { viewModel.discoverAndConnect() }) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Reconnect",
+                                tint = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+                    }
+                    
                     // Model Picker
                     IconButton(onClick = { showModelPicker = true }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Switch Model")
+                        Icon(Icons.Default.Build, contentDescription = "Switch Model")
                     }
                     
                     // Settings
@@ -158,7 +174,12 @@ fun ChatScreen(
                     viewModel.handleInput(message)
                     keyboardController?.hide()
                 },
-                isLoading = isLoading
+                isLoading = isLoading,
+                placeholder = when (connectionStatus) {
+                    is ChatViewModel.ConnectionStatus.Connected -> "Message or /command…"
+                    is ChatViewModel.ConnectionStatus.Waiting -> "Waiting for server…"
+                    else -> "Connect to send messages…"
+                }
             )
         }
     ) { padding ->
@@ -175,6 +196,17 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
+                // Connection status banner
+                if (connectionStatus !is ChatViewModel.ConnectionStatus.Connected) {
+                    item {
+                        ConnectionStatusBanner(
+                            status = connectionStatus,
+                            isDiscovering = isDiscovering,
+                            onRetry = { viewModel.discoverAndConnect() }
+                        )
+                    }
+                }
+                
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(message = message)
                 }
@@ -245,6 +277,88 @@ fun ChatScreen(
         )
     }
 }
+
+@Composable
+fun ConnectionStatusBanner(
+    status: ChatViewModel.ConnectionStatus,
+    isDiscovering: Boolean,
+    onRetry: () -> Unit
+) {
+    val (backgroundColor, textColor, icon, message) = when (status) {
+        is ChatViewModel.ConnectionStatus.Connecting -> Quad(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onPrimaryContainer,
+            Icons.Default.Refresh,
+            if (isDiscovering) "🔍 Auto-discovering OpenShark server..." else "Connecting..."
+        )
+        is ChatViewModel.ConnectionStatus.Waiting -> Quad(
+            MaterialTheme.colorScheme.tertiaryContainer,
+            MaterialTheme.colorScheme.onTertiaryContainer,
+            Icons.Default.Info,
+            "⏳ Waiting for OpenShark server. Start it in Termux or tap to retry."
+        )
+        is ChatViewModel.ConnectionStatus.Error -> Quad(
+            MaterialTheme.colorScheme.errorContainer,
+            MaterialTheme.colorScheme.onErrorContainer,
+            Icons.Default.Warning,
+            "⚠️ ${(status as ChatViewModel.ConnectionStatus.Error).message}"
+        )
+        else -> Quad(
+            MaterialTheme.colorScheme.surface,
+            MaterialTheme.colorScheme.onSurface,
+            Icons.Default.Check,
+            ""
+        )
+    }
+    
+    if (message.isEmpty()) return
+    
+    Surface(
+        color = backgroundColor,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clickable { onRetry() }
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isDiscovering || status is ChatViewModel.ConnectionStatus.Connecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = textColor
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Text(
+                text = message,
+                color = textColor,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+            if (!isDiscovering) {
+                Text(
+                    text = "↻ Retry",
+                    color = textColor,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+
+// Helper data class for banner styling
+data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 @Composable
 fun MessageBubble(message: Message) {
@@ -331,7 +445,8 @@ fun MessageBubble(message: Message) {
 @Composable
 fun ChatInputBar(
     onSend: (String) -> Unit,
-    isLoading: Boolean
+    isLoading: Boolean,
+    placeholder: String = "Message or /command…"
 ) {
     var text by remember { mutableStateOf("") }
     var showAutocomplete by remember { mutableStateOf(false) }
@@ -403,7 +518,7 @@ fun ChatInputBar(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message or /command…") },
+                    placeholder = { Text(placeholder) },
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Send

@@ -7,6 +7,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,7 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.synthalorian.openshark.data.remote.ServerDiscovery
 import com.synthalorian.openshark.ui.viewmodel.ChatViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,9 +27,12 @@ fun SettingsScreen(
 ) {
     var serverUrl by remember { mutableStateOf(viewModel.getServerUrl()) }
     val connectionStatus by viewModel.connectionStatus.collectAsState()
+    val isDiscovering by viewModel.isDiscovering.collectAsState()
+    val discoveredUrls by viewModel.discoveredUrls.collectAsState()
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf("") }
     var testSuccess by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // Observe real connection status changes from the ViewModel
     LaunchedEffect(connectionStatus) {
@@ -68,6 +74,98 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Auto-discovery card
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Text(
+                            "Auto-Connect",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                    Text(
+                        "The app automatically discovers your OpenShark server. " +
+                        "If auto-connect fails, you can set a custom URL below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Button(
+                        onClick = { viewModel.discoverAndConnect() },
+                        enabled = !isDiscovering,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isDiscovering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Discovering...")
+                        } else {
+                            Text("↻ Rediscover Server")
+                        }
+                    }
+                }
+            }
+
+            // Discovered URLs (if any)
+            if (discoveredUrls.isNotEmpty()) {
+                Text(
+                    "Discovered URLs:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                discoveredUrls.forEach { url ->
+                    val isCurrent = url == serverUrl
+                    Surface(
+                        color = if (isCurrent)
+                            MaterialTheme.colorScheme.secondaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                serverUrl = url
+                                viewModel.setServerUrl(url)
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                url,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isCurrent) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Active",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
             // Server URL
             OutlinedTextField(
                 value = serverUrl,
@@ -186,11 +284,14 @@ fun SettingsScreen(
                 val statusText = when (connectionStatus) {
                     is ChatViewModel.ConnectionStatus.Connected -> "Connected"
                     is ChatViewModel.ConnectionStatus.Connecting -> "Connecting..."
+                    is ChatViewModel.ConnectionStatus.Waiting -> "Waiting for server..."
                     is ChatViewModel.ConnectionStatus.Error -> "Disconnected"
                 }
                 val statusColor = when (connectionStatus) {
                     is ChatViewModel.ConnectionStatus.Connected ->
                         MaterialTheme.colorScheme.primary
+                    is ChatViewModel.ConnectionStatus.Waiting ->
+                        MaterialTheme.colorScheme.tertiary
                     else -> MaterialTheme.colorScheme.error
                 }
                 Text("Status:", style = MaterialTheme.typography.bodyMedium)

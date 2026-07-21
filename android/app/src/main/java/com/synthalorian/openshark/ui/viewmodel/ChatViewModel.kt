@@ -14,10 +14,12 @@ import com.synthalorian.openshark.command.Command
 import com.synthalorian.openshark.data.model.Agent
 import com.synthalorian.openshark.data.remote.*
 import com.synthalorian.openshark.data.repository.AgentRepository
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import kotlin.math.min
 
 data class Message(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -40,7 +42,7 @@ enum class AgentMode { SAFE, FULL_SEND }
 data class ModelInfo(
     val name: String,
     val provider: String,
-    val contextLength: Int,
+    contextLength: Int,
     val isLocal: Boolean = false,
     val costPer1k: Double = 0.0
 )
@@ -49,9 +51,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("openshark", Application.MODE_PRIVATE)
     private val clipboard = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val agentRepository = AgentRepository(application)
+    private val serverDiscovery = ServerDiscovery()
+    
+    // Background job for auto-reconnect polling
+    private var reconnectJob: Job? = null
 
-    private val baseUrl: String
-        get() = prefs.getString("server_url", "http://127.0.0.1:9876") ?: "http://127.0.0.1:9876"
+    private var _baseUrl = MutableStateFlow(prefs.getString("server_url", null))
+    
+    // Computed property that uses discovery if no URL saved
+    private val effectiveBaseUrl: String
+        get() = _baseUrl.value ?: "http://127.0.0.1:9876"
 
     val agents = agentRepository.agents
     val activeAgent = agentRepository.activeAgent
@@ -62,7 +71,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val api: OpenSharkApi
         get() {
-            val currentUrl = baseUrl
+            val currentUrl = effectiveBaseUrl
             if (cachedApi == null || cachedBaseUrl != currentUrl) {
                 cachedBaseUrl = currentUrl
                 val retrofit = Retrofit.Builder()
@@ -76,7 +85,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sseClient: SseClient
         get() {
-            val currentUrl = baseUrl
+            val currentUrl = effectiveBaseUrl
             if (cachedSseClient == null || cachedBaseUrl != currentUrl) {
                 cachedSseClient = SseClient(currentUrl)
             }
@@ -100,6 +109,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _availableModels = MutableStateFlow<List<ModelInfo>>(emptyList())
     val availableModels: StateFlow<List<ModelInfo>> = _availableModels.asStateFlow()
+    
+    // Whether auto-discovery is actively searching
+    private val _isDiscovering = MutableStateFlow(false)
+    val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
+    
+    // Last discovered/attempted URLs for UI
+    private val _discoveredUrls = MutableStateFlow<List<String>>(emptyList())
+    val discoveredUrls: StateFlow<List<String>> = _discoveredUrls.asStateFlow()
 
     var showMenu by mutableStateOf(false)
     var showMemorySearch by mutableStateOf(false)
@@ -109,13 +126,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     sealed class ConnectionStatus {
         object Connected : ConnectionStatus()
         object Connecting : ConnectionStatus()
+        object Waiting : ConnectionStatus()  // Auto-retrying in background
         data class Error(val message: String) : ConnectionStatus()
     }
 
     init {
         loadSettings()
-        checkConnection()
-        fetchModels()
+        // Auto-discover on startup instead of just checking
+        autoDiscoverAndConnect()
     }
 
     private fun loadSettings() {
@@ -137,6 +155,84 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Auto-discover the server and start background reconnect polling.
+     * This is the KimiClaw-style auto-connect flow.
+     */
+    private fun autoDiscoverAndConnect() {
+        viewModelScope.launch {
+            _isDiscovering.value = true
+            _connectionStatus.value = ConnectionStatus.Connecting
+            
+            val savedUrl = prefs.getString("server_url", null)
+            _discoveredUrls.value = serverDiscovery.getDiscoveryUrls(savedUrl)
+            
+            Log.d("ChatViewModel", "Auto-discovering server...")
+            val discovered = serverDiscovery.discover(savedUrl)
+            
+            _isDiscovering.value = false
+            
+            if (discovered != null) {
+                Log.i("ChatViewModel", "Auto-discovered server at $discovered")
+                // Save the discovered URL
+                prefs.edit().putString("server_url", discovered).apply()
+                _baseUrl.value = discovered
+                _connectionStatus.value = ConnectionStatus.Connected
+                fetchModels()
+            } else {
+                Log.w("ChatViewModel", "No server found, starting background polling")
+                _connectionStatus.value = ConnectionStatus.Waiting
+                startReconnectPolling()
+            }
+        }
+    }
+
+    /**
+     * Start background polling that keeps trying to find/connect to the server.
+     * This runs until connection succeeds.
+     */
+    private fun startReconnectPolling() {
+        reconnectJob?.cancel()
+        reconnectJob = viewModelScope.launch {
+            var attempt = 0
+            val maxDelay = 30000L  // Cap at 30 seconds
+            
+            while (isActive && _connectionStatus.value != ConnectionStatus.Connected) {
+                attempt++
+                // Exponential backoff: 2s, 4s, 8s, 16s, 30s, 30s...
+                val delayMs = min(2000L * (1L shl (attempt - 1)), maxDelay)
+                
+                Log.d("ChatViewModel", "Reconnect attempt $attempt in ${delayMs}ms")
+                delay(delayMs)
+                
+                if (!isActive) break
+                
+                val savedUrl = prefs.getString("server_url", null)
+                val discovered = serverDiscovery.discover(savedUrl)
+                
+                if (discovered != null) {
+                    Log.i("ChatViewModel", "Reconnected to $discovered")
+                    prefs.edit().putString("server_url", discovered).apply()
+                    _baseUrl.value = discovered
+                    _connectionStatus.value = ConnectionStatus.Connected
+                    fetchModels()
+                    break
+                }
+            }
+        }
+    }
+
+    /**
+     * Stop background reconnect polling.
+     */
+    fun stopReconnectPolling() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+    }
+
+    /**
+     * Manually check connection (used by settings screen test button).
+     */
     fun checkConnection() {
         viewModelScope.launch {
             _connectionStatus.value = ConnectionStatus.Connecting
@@ -152,6 +248,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _connectionStatus.value = ConnectionStatus.Error(e.message ?: "Connection failed")
             }
         }
+    }
+
+    /**
+     * Try to discover and connect. Used when user pulls-to-refresh or manually triggers.
+     */
+    fun discoverAndConnect() {
+        autoDiscoverAndConnect()
     }
 
     fun fetchModels() {
@@ -209,8 +312,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             is Command.Status -> {
                 val status = when (val cs = _connectionStatus.value) {
-                    is ConnectionStatus.Connected -> "🟢 Connected to `${getServerUrl()}`"
+                    is ConnectionStatus.Connected -> "🟢 Connected to `${effectiveBaseUrl}`"
                     is ConnectionStatus.Connecting -> "🟡 Connecting..."
+                    is ConnectionStatus.Waiting -> "⏳ Waiting for server... (auto-retrying)"
                     is ConnectionStatus.Error -> "🔴 Disconnected: ${cs.message}"
                 }
                 val model = "🤖 Model: `${_currentModel.value}`"
@@ -222,7 +326,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             is Command.Config -> {
                 val config = buildString {
                     appendLine("⚙️ **Configuration**")
-                    appendLine("Server: `${getServerUrl()}`")
+                    appendLine("Server: `${effectiveBaseUrl}`")
                     appendLine("Model: `${_currentModel.value}`")
                     appendLine("Mode: `${_agentMode.value.name.lowercase()}`")
                     appendLine("Models cached: `${_availableModels.value.size}`")
@@ -419,6 +523,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendMessage(content: String) {
         if (content.isBlank()) return
+        
+        // If not connected, show helpful message instead of failing
+        if (_connectionStatus.value !is ConnectionStatus.Connected) {
+            addSystemMessage(
+                "⏳ **Waiting for OpenShark server**\n\n" +
+                "The app is trying to auto-connect to your Termux OpenShark server.\n\n" +
+                "**To start the server:**\n" +
+                "1. Open Termux\n" +
+                "2. Run: `openshark server`\n" +
+                "3. Or use the install script: `~/openshark/start.sh`\n\n" +
+                "**Or set a custom URL:**\n" +
+                "Use `/connect http://YOUR_IP:9876`"
+            )
+            return
+        }
+        
         _isLoading.value = true
 
         viewModelScope.launch {
@@ -460,6 +580,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 updateLastMessage("Error: ${e.message}", isStreaming = false)
                 _isLoading.value = false
                 _connectionStatus.value = ConnectionStatus.Error(e.message ?: "Unknown error")
+                // Trigger reconnect polling after error
+                startReconnectPolling()
             }
         }
     }
@@ -544,11 +666,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setServerUrl(url: String) {
         prefs.edit().putString("server_url", url).apply()
+        _baseUrl.value = url
+        // Clear caches so new URL is used
+        cachedBaseUrl = null
+        cachedApi = null
+        cachedSseClient = null
         checkConnection()
         fetchModels()
     }
 
-    fun getServerUrl(): String = baseUrl
+    fun getServerUrl(): String = effectiveBaseUrl
 
     fun exportChat() {
         val chatText = _messages.value.joinToString("\n\n") { msg ->
@@ -576,5 +703,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 Log.e("ChatViewModel", "Tool execution error", e)
             }
         }
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        stopReconnectPolling()
     }
 }
