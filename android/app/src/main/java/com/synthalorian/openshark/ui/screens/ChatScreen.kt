@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.synthalorian.openshark.command.Command
 import com.synthalorian.openshark.ui.viewmodel.AgentMode
 import com.synthalorian.openshark.ui.viewmodel.ChatViewModel
 import com.synthalorian.openshark.ui.viewmodel.Message
@@ -333,58 +334,157 @@ fun ChatInputBar(
     isLoading: Boolean
 ) {
     var text by remember { mutableStateOf("") }
+    var showAutocomplete by remember { mutableStateOf(false) }
 
-    Surface(
-        tonalElevation = 3.dp,
-        shadowElevation = 3.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+    // Filter commands when typing /
+    val filteredCommands = remember(text) {
+        if (!text.startsWith("/")) {
+            emptyList()
+        } else {
+            val query = text.substring(1).lowercase()
+            Command.ALL.filter { cmd ->
+                cmd.name.contains(query) || cmd.aliases.any { it.contains(query) }
+            }
+        }
+    }
+    showAutocomplete = filteredCommands.isNotEmpty()
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // Autocomplete popup
+        if (showAutocomplete) {
+            Surface(
+                tonalElevation = 6.dp,
+                shadowElevation = 6.dp,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 72.dp)
+                    .align(Alignment.BottomStart)
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                        .padding(vertical = 8.dp)
+                ) {
+                    items(filteredCommands, key = { it.name }) { cmd ->
+                        CommandAutocompleteItem(
+                            command = cmd,
+                            onSelect = {
+                                text = if (cmd.usage.isNotBlank()) {
+                                    // Command takes args — position cursor after name + space
+                                    "/${cmd.name} "
+                                } else {
+                                    // No args — submit immediately
+                                    onSend("/${cmd.name}")
+                                    ""
+                                }
+                                showAutocomplete = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Surface(
+            tonalElevation = 3.dp,
+            shadowElevation = 3.dp
         ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Message or /command…") },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Send
-                ),
-                keyboardActions = KeyboardActions(
-                    onSend = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message or /command…") },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (text.isNotBlank() && !isLoading) {
+                                onSend(text)
+                                text = ""
+                                showAutocomplete = false
+                            }
+                        }
+                    ),
+                    singleLine = false,
+                    maxLines = 5,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+
+                FilledIconButton(
+                    onClick = {
                         if (text.isNotBlank() && !isLoading) {
                             onSend(text)
                             text = ""
+                            showAutocomplete = false
                         }
-                    }
-                ),
-                singleLine = false,
-                maxLines = 5,
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+                    },
+                    enabled = text.isNotBlank() && !isLoading,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
 
-            FilledIconButton(
-                onClick = {
-                    if (text.isNotBlank() && !isLoading) {
-                        onSend(text)
-                        text = ""
-                    }
-                },
-                enabled = text.isNotBlank() && !isLoading,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    modifier = Modifier.size(20.dp)
+@Composable
+private fun CommandAutocompleteItem(
+    command: Command,
+    onSelect: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect() }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.padding(end = 4.dp)
+        ) {
+            Text(
+                text = "/${command.name}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = command.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (command.aliases.isNotEmpty()) {
+                Text(
+                    text = command.aliases.joinToString(", ") { "/$it" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
