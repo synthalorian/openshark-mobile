@@ -1,6 +1,7 @@
 #!/bin/bash
-# Build OpenShark Android APK on-device (Termux)
-# This installs the Android SDK + JDK and builds the APK directly on your phone
+# OpenShark APK Builder — Full On-Device Build (Termux)
+# Downloads Android SDK + builds APK entirely on your phone
+# Requires: Termux (F-Droid), ~4GB free storage, WiFi
 
 set -e
 
@@ -8,119 +9,168 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-ANDROID_DIR="$HOME/android-sdk"
-PROJECT_DIR="${1:-$HOME/openshark/openshark-mobile/android}"
+ANDROID_SDK_DIR="$HOME/android-sdk"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_LOG="/tmp/openshark-apk-build.log"
 
-echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║     🦈 OpenShark APK Builder — On-Device (Termux)    ║${NC}"
-echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}${BOLD}║           🦈 OpenShark APK Builder — Termux                  ║${NC}"
+echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Check Termux
+# ── Verify Termux ──────────────────────────────────────────
 if [ -z "$TERMUX_VERSION" ] && [ ! -d "/data/data/com.termux" ]; then
-    echo -e "${RED}Error: Must run in Termux${NC}"
+    echo -e "${RED}✗ This script must run inside Termux${NC}"
+    echo "Install from F-Droid: https://f-droid.org/packages/com.termux/"
     exit 1
 fi
 
-# Step 1: Install dependencies
-echo -e "${BLUE}▶ Step 1/5: Installing dependencies...${NC}"
+# ── Check storage ──────────────────────────────────────────
+FREE_GB=$(df -h "$HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
+echo -e "${BLUE}▶ Free storage: ${FREE_GB}GB${NC}"
+
+# ── Step 1: Dependencies ───────────────────────────────────
+echo ""
+echo -e "${BLUE}${BOLD}▶ Step 1/6: Installing dependencies...${NC}"
 pkg update -y
-pkg install -y openjdk-17 curl unzip
+pkg install -y openjdk-17 curl unzip git
 
-# Step 2: Download Android SDK
-echo -e "${BLUE}▶ Step 2/5: Setting up Android SDK...${NC}"
+export JAVA_HOME="/data/data/com.termux/files/usr/lib/jvm/java-17"
+export PATH="$JAVA_HOME/bin:$PATH"
 
-if [ ! -d "$ANDROID_DIR" ]; then
-    mkdir -p "$ANDROID_DIR"
-    cd "$ANDROID_DIR"
+# Add to bashrc if not present
+if ! grep -q "JAVA_HOME" "$HOME/.bashrc" 2>/dev/null; then
+    cat >> "$HOME/.bashrc" << 'EOF'
+
+# Java / Android
+export JAVA_HOME="/data/data/com.termux/files/usr/lib/jvm/java-17"
+export PATH="$JAVA_HOME/bin:$PATH"
+EOF
+fi
+
+echo -e "${GREEN}✓ Java 17 ready${NC}"
+
+# ── Step 2: Android SDK ────────────────────────────────────
+echo ""
+echo -e "${BLUE}${BOLD}▶ Step 2/6: Setting up Android SDK...${NC}"
+
+if [ ! -d "$ANDROID_SDK_DIR/cmdline-tools" ]; then
+    mkdir -p "$ANDROID_SDK_DIR"
+    cd "$ANDROID_SDK_DIR"
     
     echo "Downloading Android command line tools..."
-    curl -L -o cmdline-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+    CMDLINE_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+    curl -L -o cmdline-tools.zip "$CMDLINE_URL" 2>&1 | tail -3
     
     echo "Extracting..."
     unzip -q cmdline-tools.zip
     mkdir -p cmdline-tools/latest
-    mv cmdline-tools/bin cmdline-tools/lib cmdline-tools/latest/
-    rm cmdline-tools.zip
+    mv cmdline-tools/bin cmdline-tools/lib cmdline-tools/NOTICE.txt cmdline-tools/source.properties cmdline-tools/latest/ 2>/dev/null || true
+    rm -f cmdline-tools.zip
     
-    # Accept licenses
-    yes | cmdline-tools/latest/bin/sdkmanager --licenses || true
-    
-    # Install required SDK components
-    cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-    
-    echo -e "${GREEN}✓ Android SDK installed${NC}"
+    echo -e "${GREEN}✓ SDK downloaded${NC}"
 else
-    echo -e "${GREEN}✓ Android SDK already present${NC}"
+    echo -e "${GREEN}✓ SDK already present${NC}"
 fi
 
-# Step 3: Set environment
-echo -e "${BLUE}▶ Step 3/5: Configuring environment...${NC}"
+# Set SDK environment
+export ANDROID_HOME="$ANDROID_SDK_DIR"
+export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
-export ANDROID_HOME="$ANDROID_DIR"
-export JAVA_HOME="/data/data/com.termux/files/usr/lib/jvm/java-17"
-export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
-
-# Add to bashrc for future sessions
-if ! grep -q "ANDROID_HOME" "$HOME/.bashrc"; then
+# Add to bashrc
+if ! grep -q "ANDROID_HOME" "$HOME/.bashrc" 2>/dev/null; then
     cat >> "$HOME/.bashrc" << EOF
 
 # Android SDK
-export ANDROID_HOME="$ANDROID_DIR"
-export JAVA_HOME="/data/data/com.termux/files/usr/lib/jvm/java-17"
-export PATH="\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$JAVA_HOME/bin:\$PATH"
+export ANDROID_HOME="$ANDROID_SDK_DIR"
+export PATH="\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH"
 EOF
 fi
 
-echo -e "${GREEN}✓ Environment configured${NC}"
-
-# Step 4: Verify project
-echo -e "${BLUE}▶ Step 4/5: Verifying project...${NC}"
-
-if [ ! -f "$PROJECT_DIR/build.gradle.kts" ]; then
-    echo -e "${RED}Error: Android project not found at $PROJECT_DIR${NC}"
-    echo "Usage: $0 /path/to/openshark-mobile/android"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ Project found${NC}"
-
-# Step 5: Build APK
-echo -e "${BLUE}▶ Step 5/5: Building APK...${NC}"
-echo -e "${YELLOW}This may take 15-30 minutes on mobile. Keep Termux alive.${NC}"
+# ── Step 3: SDK Components ─────────────────────────────────
 echo ""
+echo -e "${BLUE}${BOLD}▶ Step 3/6: Installing SDK components...${NC}"
+echo -e "${YELLOW}  (Accepting licenses automatically)${NC}"
+
+yes 2>/dev/null | sdkmanager --licenses > /dev/null 2>&1 || true
+
+sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" 2>&1 | grep -v "^$" | tail -10
+
+echo -e "${GREEN}✓ SDK components installed${NC}"
+
+# ── Step 4: Verify Project ─────────────────────────────────
+echo ""
+echo -e "${BLUE}${BOLD}▶ Step 4/6: Verifying project...${NC}"
 
 cd "$PROJECT_DIR"
 
-# Make gradlew executable
+if [ ! -f "build.gradle.kts" ]; then
+    echo -e "${RED}✗ No build.gradle.kts found in $PROJECT_DIR${NC}"
+    echo "Are you running this from the android/ directory?"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Project verified${NC}"
+
+# ── Step 5: Build ──────────────────────────────────────────
+echo ""
+echo -e "${BLUE}${BOLD}▶ Step 5/6: Building APK...${NC}"
+echo -e "${YELLOW}  This will take 10-30 minutes. Keep Termux alive.${NC}"
+echo ""
+
 chmod +x gradlew 2>/dev/null || true
 
-# Build
-./gradlew assembleDebug 2>&1 | tee /tmp/apk-build.log
+./gradlew assembleDebug --no-daemon --offline 2>&1 | tee "$BUILD_LOG" | while read line; do
+    # Show progress indicators
+    if echo "$line" | grep -q "CONFIGURE SUCCESSFUL"; then
+        echo -e "${GREEN}✓ Gradle configured${NC}"
+    elif echo "$line" | grep -q "BUILD SUCCESSFUL"; then
+        echo -e "${GREEN}✓ Build successful!${NC}"
+    elif echo "$line" | grep -q "BUILD FAILED"; then
+        echo -e "${RED}✗ Build failed${NC}"
+    fi
+done
 
-# Check result
+BUILD_STATUS=${PIPESTATUS[0]}
+
+# ── Step 6: Deliver ────────────────────────────────────────
+echo ""
 APK_PATH="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
-if [ -f "$APK_PATH" ]; then
+if [ -f "$APK_PATH" ] && [ $BUILD_STATUS -eq 0 ]; then
     APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
+    
+    echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}${BOLD}║                  🎉 APK BUILD SUCCESSFUL!                    ║${NC}"
+    echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║              ✅ APK BUILD SUCCESSFUL!                  ║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${BOLD}APK Location:${NC}"
+    echo "  $APK_PATH"
     echo ""
-    echo "APK location: $APK_PATH"
-    echo "APK size: $APK_SIZE"
+    echo -e "${BOLD}Size:${NC} $APK_SIZE"
     echo ""
-    echo "Install with:"
-    echo "  pm install -r $APK_PATH"
+    echo -e "${BOLD}Install now:${NC}"
+    echo "  pm install -r \"$APK_PATH\""
     echo ""
-    echo "Or share it:"
-    echo "  cp $APK_PATH ~/storage/downloads/OpenShark.apk"
+    echo -e "${BOLD}Or copy to Downloads:${NC}"
+    echo "  cp \"$APK_PATH\" ~/storage/downloads/OpenShark.apk"
+    echo ""
+    echo -e "${CYAN}This is the wave. 🎹🦞${NC}"
 else
+    echo -e "${RED}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}${BOLD}║                    ✗ BUILD FAILED                            ║${NC}"
+    echo -e "${RED}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${RED}✗ Build failed${NC}"
-    echo "Check log: /tmp/apk-build.log"
+    echo "Check the full log:"
+    echo "  cat $BUILD_LOG"
+    echo ""
+    echo "Common fixes:"
+    echo "  - Run: pkg install openjdk-17"
+    echo "  - Check internet connection"
+    echo "  - Ensure 4GB+ free storage"
     exit 1
 fi
