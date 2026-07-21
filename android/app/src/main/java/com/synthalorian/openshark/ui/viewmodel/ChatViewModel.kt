@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.synthalorian.openshark.command.Command
 import com.synthalorian.openshark.data.remote.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -169,11 +170,199 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendMessage(content: String) {
+    fun handleInput(content: String) {
         if (content.isBlank()) return
 
+        // Show the user's command/message in chat
         val userMessage = Message(role = "user", content = content)
         _messages.value = _messages.value + userMessage
+
+        // Check if it's a command
+        val parsed = Command.parse(content)
+        if (parsed != null) {
+            executeCommand(parsed.first, parsed.second)
+        } else {
+            sendMessage(content)
+        }
+    }
+
+    private fun executeCommand(command: Command, args: String) {
+        when (command) {
+            is Command.Connect -> {
+                if (args.isBlank()) {
+                    addSystemMessage("❌ Usage: `/connect <url>` (e.g., `/connect http://192.168.1.42:9876`)")
+                    return
+                }
+                if (!args.startsWith("http://") && !args.startsWith("https://")) {
+                    addSystemMessage("❌ URL must start with `http://` or `https://`")
+                    return
+                }
+                setServerUrl(args)
+                addSystemMessage("🔗 Connecting to `$args`...")
+            }
+
+            is Command.Status -> {
+                val status = when (val cs = _connectionStatus.value) {
+                    is ConnectionStatus.Connected -> "🟢 Connected to `${getServerUrl()}`"
+                    is ConnectionStatus.Connecting -> "🟡 Connecting..."
+                    is ConnectionStatus.Error -> "🔴 Disconnected: ${cs.message}"
+                }
+                val model = "🤖 Model: `${_currentModel.value}`"
+                val mode = "🛡️ Mode: `${_agentMode.value.name.lowercase()}`"
+                addSystemMessage("$status\n$model\n$mode")
+            }
+
+            is Command.Config -> {
+                val config = buildString {
+                    appendLine("⚙️ **Configuration**")
+                    appendLine("Server: `${getServerUrl()}`")
+                    appendLine("Model: `${_currentModel.value}`")
+                    appendLine("Mode: `${_agentMode.value.name.lowercase()}`")
+                    appendLine("Models cached: `${_availableModels.value.size}`")
+                }
+                addSystemMessage(config)
+            }
+
+            is Command.Model -> {
+                if (args.isBlank()) {
+                    addSystemMessage("Current model: `${_currentModel.value}`\nUse `/models` to see available models.")
+                    return
+                }
+                val modelName = args.trim()
+                val exists = _availableModels.value.any { it.name == modelName }
+                if (!exists) {
+                    addSystemMessage("⚠️ Model `$modelName` not found. Use `/models` to list available models.")
+                    return
+                }
+                switchModel(modelName)
+            }
+
+            is Command.Models -> {
+                val models = _availableModels.value
+                if (models.isEmpty()) {
+                    addSystemMessage("No models available. Check your server connection with `/status`.")
+                    return
+                }
+                val list = models.joinToString("\n") { m ->
+                    val prefix = if (m.name == _currentModel.value) "▸ " else "  "
+                    val type = if (m.isLocal) "🏠" else "☁️"
+                    "$prefix`${m.name}` $type ${m.provider}"
+                }
+                addSystemMessage("**Available Models**\n$list")
+            }
+
+            is Command.Local -> {
+                val local = _availableModels.value.filter { it.isLocal }
+                if (local.isEmpty()) {
+                    addSystemMessage("No local models available.")
+                    return
+                }
+                switchModel(local.first().name)
+                addSystemMessage("🏠 Switched to local model: `${local.first().name}`")
+            }
+
+            is Command.Cloud -> {
+                val cloud = _availableModels.value.filter { !it.isLocal }
+                if (cloud.isEmpty()) {
+                    addSystemMessage("No cloud models available.")
+                    return
+                }
+                switchModel(cloud.first().name)
+                addSystemMessage("☁️ Switched to cloud model: `${cloud.first().name}`")
+            }
+
+            is Command.New -> {
+                clearChat()
+                addSystemMessage("🆕 New chat started. Session ID: `$sessionId`")
+            }
+
+            is Command.Clear -> {
+                clearChat()
+                addSystemMessage("🧹 Chat history cleared.")
+            }
+
+            is Command.Export -> {
+                exportChat()
+                addSystemMessage("📋 Chat copied to clipboard.")
+            }
+
+            is Command.Memory -> {
+                if (args.isBlank()) {
+                    addSystemMessage("❌ Usage: `/memory <query>` (e.g., `/memory auth refactor`)")
+                    return
+                }
+                searchMemory(args)
+            }
+
+            is Command.Remember -> {
+                if (args.isBlank()) {
+                    addSystemMessage("❌ Usage: `/remember <text>`")
+                    return
+                }
+                viewModelScope.launch {
+                    try {
+                        val response = api.saveMemory(MemorySaveRequest(args, sessionId))
+                        if (response.isSuccessful) {
+                            addSystemMessage("🧠 Saved to memory.")
+                        } else {
+                            addSystemMessage("❌ Failed to save memory: ${response.code()}")
+                        }
+                    } catch (e: Exception) {
+                        addSystemMessage("❌ Error: ${e.message}")
+                    }
+                }
+            }
+
+            is Command.Safe -> {
+                setAgentMode(AgentMode.SAFE)
+                addSystemMessage("🛡️ Safe mode enabled. I'll ask before executing tools.")
+            }
+
+            is Command.FullSend -> {
+                setAgentMode(AgentMode.FULL_SEND)
+                addSystemMessage("🚀 Full send mode enabled. I'll execute tools automatically.")
+            }
+
+            is Command.Tools -> {
+                // TODO: Fetch tools from server
+                addSystemMessage("🔧 **Available Tools**\n- `shell` — Execute shell commands\n- `file_read` — Read files\n- `file_write` — Write files\n\nUse `/exec <name> <args>` to run a tool.")
+            }
+
+            is Command.Exec -> {
+                val parts = args.split(" ", limit = 2)
+                if (parts.size < 1 || parts[0].isBlank()) {
+                    addSystemMessage("❌ Usage: `/exec <name> <args>` (e.g., `/exec shell ls -la`)")
+                    return
+                }
+                val toolName = parts[0]
+                val toolArgs = parts.getOrElse(1) { "" }
+                executeTool(toolName, toolArgs)
+            }
+
+            is Command.Help -> {
+                if (args.isNotBlank()) {
+                    val cmd = Command.ALL.find { it.name == args || it.aliases.contains(args) }
+                    if (cmd != null) {
+                        addSystemMessage(Command.getHelpText(cmd))
+                    } else {
+                        addSystemMessage("Unknown command: `$args`. Type `/help` for all commands.")
+                    }
+                } else {
+                    addSystemMessage(Command.getHelpText())
+                }
+            }
+        }
+    }
+
+    private fun addSystemMessage(content: String) {
+        _messages.value = _messages.value + Message(
+            role = "assistant",
+            content = content
+        )
+    }
+
+    fun sendMessage(content: String) {
+        if (content.isBlank()) return
         _isLoading.value = true
 
         viewModelScope.launch {
@@ -196,7 +385,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             updateLastMessage("Error: ${chunk.error}", isStreaming = false)
                         }
                         chunk.tool_calls != null -> {
-                            // Handle tool calls
                             chunk.tool_calls.forEach { toolCall ->
                                 addToolCall(toolCall)
                             }

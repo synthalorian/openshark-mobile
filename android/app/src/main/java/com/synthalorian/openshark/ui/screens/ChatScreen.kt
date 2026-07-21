@@ -143,7 +143,7 @@ fun ChatScreen(
         bottomBar = {
             ChatInputBar(
                 onSend = { message ->
-                    viewModel.sendMessage(message)
+                    viewModel.handleInput(message)
                     keyboardController?.hide()
                 },
                 isLoading = isLoading
@@ -338,7 +338,7 @@ fun ChatInputBar(
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Message OpenShark…") },
+                placeholder = { Text("Message or /command…") },
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Send
