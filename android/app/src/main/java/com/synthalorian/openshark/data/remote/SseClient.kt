@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -23,7 +24,7 @@ class SseClient(private val baseUrl: String) {
 
     fun streamChat(request: ChatRequest): Flow<ChatResponseChunk> = callbackFlow {
         val requestBody = okhttp3.RequestBody.create(
-            okhttp3.MediaType.parse("application/json"),
+            "application/json".toMediaTypeOrNull(),
             gson.toJson(request)
         )
 
