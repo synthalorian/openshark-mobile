@@ -13,6 +13,7 @@ Run OpenShark natively on your Android device via Termux, with a native Android 
 | 🦈 HTTP Gateway | ✅ Complete | Axum server with SSE streaming |
 | 🤖 Android App | ✅ Complete | Kotlin + Jetpack Compose |
 | 🏠 Local LLM | ✅ Ready | Ollama + Gemma 4 integration |
+| ☁️ Cloud Proxy | ✅ Ready | Kimi via OpenClaw bridge |
 | 📦 APK Build | ✅ Ready | Gradle build scripts |
 | 🎨 Synthwave Theme | ✅ Complete | Neon purple/pink/yellow |
 | 🛡️ Agent Modes | ✅ Complete | Safe vs Full Send |
@@ -99,6 +100,44 @@ Open the app → Settings → verify `http://127.0.0.1:9876` → Start chatting.
 
 ---
 
+## Cloud Mode — Kimi via OpenClaw
+
+Want cloud power when you have internet? The Kimi proxy bridges OpenShark to your existing OpenClaw → Kimi connection.
+
+### Architecture
+
+```
+OpenShark ──► Kimi Proxy (localhost:9000) ──► OpenClaw Gateway ──► Kimi API
+                (reads OpenClaw config)         (your existing        (moonshot.cn)
+                                                connection)
+```
+
+### Setup
+
+```bash
+# Start the proxy (reads your OpenClaw config for auth)
+cd openshark-mobile/proxy
+bash proxy.sh start
+
+# Or use the alias (after running complete-setup.sh)
+kimi-proxy start
+```
+
+The proxy auto-discovers your Kimi API key from OpenClaw's config and exposes an OpenAI-compatible endpoint at `http://127.0.0.1:9000/v1`.
+
+### Available Cloud Models
+
+| Model | Context | Use Case |
+|-------|---------|----------|
+| `kimi-k3` | 1M tokens | Complex reasoning, large codebases |
+| `kimi-k2.5` | 256K tokens | General coding, analysis |
+
+### Switching Models in the App
+
+Tap the model name in the top bar → select **kimi-k3** or **kimi-k2.5** for cloud power, or **gemma4:e2b** for offline mode.
+
+---
+
 ## API Endpoints
 
 The HTTP gateway exposes these endpoints:
@@ -134,10 +173,17 @@ cost_per_1k_input = 0.0
 cost_per_1k_output = 0.0
 capabilities = ["code", "chat", "analysis"]
 
-# Add cloud provider for internet fallback:
-[providers.openai]
-base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"
+# Add cloud provider via OpenClaw proxy:
+[providers.kimi]
+base_url = "http://127.0.0.1:9000/v1"
+api_key = "local-proxy"
+
+[[providers.kimi.models]]
+name = "kimi-k3"
+context_length = 1000000
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["code", "chat", "analysis"]
 ```
 
 ---

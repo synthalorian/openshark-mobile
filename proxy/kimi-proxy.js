@@ -1,316 +1,264 @@
 #!/usr/bin/env node
 /**
- * Kimi Proxy for OpenShark
+ * Kimi-OpenShark Proxy
  * 
- * Bridges OpenShark (OpenAI-compatible) ↔ OpenClaw's Kimi connection
- * Runs alongside OpenClaw gateway, exposes localhost OpenAI API endpoint
+ * Bridges OpenShark (OpenAI-compatible client) to Kimi/Moonshot API
+ * using credentials from OpenClaw's config.
  * 
- * Usage:
- *   node kimi-proxy.js [--port 9000]
- * 
- * Then in OpenShark config.toml:
- *   [providers.kimi]
- *   base_url = "http://127.0.0.1:9000/v1"
- *   api_key = "dummy"
+ * Run alongside OpenClaw gateway. OpenShark connects to localhost:9000
  */
 
 const http = require('http');
-const { URL } = require('url');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
-// ── Config ──────────────────────────────────────────────────────
-const PROXY_PORT = parseInt(process.argv.find((_, i, a) => a[i-1] === '--port') || process.env.KIMI_PROXY_PORT || '9000', 10);
-const KIMI_BASE_URL = process.env.KIMI_API_URL || 'https://api.moonshot.cn/v1';
-const KIMI_API_KEY = process.env.KIMI_API_KEY || '';
+const PROXY_PORT = process.env.KIMI_PROXY_PORT || 9000;
+const KIMI_BASE_URL = 'https://api.moonshot.cn';
 
-// Try to load from OpenClaw config if available
-function loadOpenClawConfig() {
-    const fs = require('fs');
-    const path = require('path');
-    const os = require('os');
-    
-    const configPaths = [
-        path.join(os.homedir(), '.config/openclaw/config.json'),
-        path.join(os.homedir(), '.config/openclaw/config.toml'),
-        path.join(os.homedir(), '.openclaw/config.json'),
-        path.join(os.homedir(), '.openclaw/config.toml'),
-        '/usr/lib/node_modules/openclaw/config.json',
+// ── Find OpenClaw Config ──────────────────────────────────────
+function findOpenClawConfig() {
+    const possiblePaths = [
+        path.join(os.homedir(), '.config', 'openclaw', 'config.yaml'),
+        path.join(os.homedir(), '.config', 'openclaw', 'config.yml'),
+        path.join(os.homedir(), '.config', 'openclaw', 'config.json'),
+        path.join(os.homedir(), '.openclaw', 'config.yaml'),
+        path.join(os.homedir(), '.openclaw', 'config.yml'),
+        path.join(os.homedir(), '.openclaw', 'config.json'),
+        '/usr/lib/node_modules/openclaw/config.yaml',
     ];
-    
-    for (const configPath of configPaths) {
-        try {
-            const content = fs.readFileSync(configPath, 'utf8');
-            // Simple TOML/JSON parse for provider config
-            if (configPath.endsWith('.toml')) {
-                // Extract kimi/moonshot provider from TOML
-                const kimiMatch = content.match(/\[providers\.(kimi|moonshot)[^\]]*\]([^\[]*)/i);
-                if (kimiMatch) {
-                    const section = kimiMatch[2];
-                    const apiKeyMatch = section.match(/api_key\s*=\s*"([^"]+)"/);
-                    const baseUrlMatch = section.match(/base_url\s*=\s*"([^"]+)"/);
-                    return {
-                        apiKey: apiKeyMatch ? apiKeyMatch[1] : KIMI_API_KEY,
-                        baseUrl: baseUrlMatch ? baseUrlMatch[1] : KIMI_BASE_URL,
-                    };
-                }
-            } else {
-                const config = JSON.parse(content);
-                const providers = config.providers || {};
-                const kimi = providers.kimi || providers.moonshot || {};
-                if (kimi.api_key || kimi.base_url) {
-                    return {
-                        apiKey: kimi.api_key || KIMI_API_KEY,
-                        baseUrl: kimi.base_url || KIMI_BASE_URL,
-                    };
-                }
-            }
-        } catch (e) {
-            // Continue to next path
+
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            return p;
         }
     }
-    
-    return { apiKey: KIMI_API_KEY, baseUrl: KIMI_BASE_URL };
+    return null;
 }
 
-const config = loadOpenClawConfig();
-console.log(`[Kimi Proxy] Loaded config: baseUrl=${config.baseUrl}, apiKey=${config.apiKey ? '***' : 'NOT SET'}`);
-
-if (!config.apiKey) {
-    console.error('[Kimi Proxy] WARNING: No Kimi API key found. Set KIMI_API_KEY env var or configure OpenClaw.');
-}
-
-// ── OpenAI → Kimi Request Transformer ───────────────────────────
-function transformRequest(openaiBody) {
-    // Kimi/Moonshot is already OpenAI-compatible, just pass through
-    // with any necessary tweaks
-    return {
-        model: openaiBody.model || 'kimi-k3',
-        messages: openaiBody.messages || [],
-        stream: openaiBody.stream !== false,
-        temperature: openaiBody.temperature ?? 0.7,
-        max_tokens: openaiBody.max_tokens || 4096,
-        top_p: openaiBody.top_p ?? 1,
-        // Kimi-specific params
-        ...((openaiBody.tools || openaiBody.tool_choice) ? {
-            tools: openaiBody.tools,
-            tool_choice: openaiBody.tool_choice,
-        } : {}),
-    };
-}
-
-// ── Proxy Request Handler ───────────────────────────────────────
-async function handleChatCompletions(req, res) {
-    const chunks = [];
-    for await (const chunk of req) {
-        chunks.push(chunk);
+function loadConfig() {
+    const configPath = findOpenClawConfig();
+    if (!configPath) {
+        console.error('OpenClaw config not found. Checked:');
+        console.error('   ~/.config/openclaw/config.{yaml,yml,json}');
+        console.error('   ~/.openclaw/config.{yaml,yml,json}');
+        return {};
     }
-    const bodyStr = Buffer.concat(chunks).toString('utf8');
+
+    const content = fs.readFileSync(configPath, 'utf8');
+    let config = {};
     
-    let body;
-    try {
-        body = JSON.parse(bodyStr || '{}');
-    } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'Invalid JSON', type: 'invalid_request_error' } }));
-        return;
-    }
-    
-    const kimiBody = transformRequest(body);
-    
-    if (body.stream) {
-        // SSE streaming
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*',
-        });
-        
-        try {
-            const response = await fetch(`${config.baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${config.apiKey}`,
-                    'Accept': 'text/event-stream',
-                },
-                body: JSON.stringify(kimiBody),
-            });
-            
-            if (!response.ok) {
-                const error = await response.text();
-                res.write(`data: ${JSON.stringify({ error: { message: error, code: response.status } })}
-
-`);
-                res.write('data: [DONE]
-
-');
-                res.end();
-                return;
-            }
-            
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const text = decoder.decode(value, { stream: true });
-                res.write(text);
-            }
-            
-            res.write('data: [DONE]
-
-');
-            res.end();
-        } catch (e) {
-            console.error('[Kimi Proxy] Stream error:', e.message);
-            res.write(`data: ${JSON.stringify({ error: { message: e.message } })}
-
-`);
-            res.write('data: [DONE]
-
-');
-            res.end();
-        }
+    if (configPath.endsWith('.json')) {
+        config = JSON.parse(content);
     } else {
-        // Non-streaming
-        try {
-            const response = await fetch(`${config.baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${config.apiKey}`,
-                },
-                body: JSON.stringify(kimiBody),
-            });
+        // Naive YAML parser
+        const lines = content.split('\n');
+        let currentSection = null;
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
             
-            const data = await response.json();
-            res.writeHead(response.status, {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-            });
-            res.end(JSON.stringify(data));
-        } catch (e) {
-            console.error('[Kimi Proxy] Request error:', e.message);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: e.message, type: 'api_error' } }));
+            const match = trimmed.match(/^(\w+):\s*(.*)$/);
+            if (match) {
+                const [, key, value] = match;
+                if (value) {
+                    config[key] = value.replace(/^["']|["']$/g, '');
+                } else {
+                    currentSection = key;
+                    config[currentSection] = {};
+                }
+            }
         }
     }
+
+    return config;
 }
 
-// ── Models Endpoint ─────────────────────────────────────────────
-function handleModels(req, res) {
-    const models = {
-        object: 'list',
-        data: [
-            {
-                id: 'kimi-k3',
-                object: 'model',
-                created: 1700000000,
-                owned_by: 'moonshot',
-                permission: [],
-                root: 'kimi-k3',
-                parent: null,
-            },
-            {
-                id: 'kimi-k2.5',
-                object: 'model',
-                created: 1700000000,
-                owned_by: 'moonshot',
-                permission: [],
-                root: 'kimi-k2.5',
-                parent: null,
-            },
-            {
-                id: 'kimi-k2',
-                object: 'model',
-                created: 1700000000,
-                owned_by: 'moonshot',
-                permission: [],
-                root: 'kimi-k2',
-                parent: null,
-            },
-        ],
-    };
-    
-    res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-    });
-    res.end(JSON.stringify(models));
-}
+// ── Extract Kimi API Key ──────────────────────────────────────
+function getKimiApiKey(config) {
+    const keys = [
+        config.providers?.kimi?.apiKey,
+        config.providers?.moonshot?.apiKey,
+        config.providers?.kimi?.api_key,
+        config.providers?.moonshot?.api_key,
+        config.kimi?.apiKey,
+        config.moonshot?.apiKey,
+        config.apiKey,
+        process.env.KIMI_API_KEY,
+        process.env.OPENCLAW_KIMI_KEY,
+    ];
 
-// ── Health Check ────────────────────────────────────────────────
-function handleHealth(req, res) {
-    res.writeHead(200, { 
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-    });
-    res.end(JSON.stringify({ 
-        status: 'ok', 
-        service: 'kimi-proxy',
-        proxy_port: PROXY_PORT,
-        upstream: config.baseUrl,
-    }));
-}
-
-// ── HTTP Server ─────────────────────────────────────────────────
-const server = http.createServer((req, res) => {
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
+    for (const key of keys) {
+        if (key) return key;
     }
-    
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    
-    if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-        handleChatCompletions(req, res);
-    } else if (url.pathname === '/v1/models' && req.method === 'GET') {
-        handleModels(req, res);
-    } else if (url.pathname === '/v1/health' && req.method === 'GET') {
-        handleHealth(req, res);
-    } else {
+
+    const envPaths = [
+        path.join(os.homedir(), '.config', 'openclaw', '.env'),
+        path.join(os.homedir(), '.openclaw', '.env'),
+    ];
+    for (const p of envPaths) {
+        if (fs.existsSync(p)) {
+            const env = fs.readFileSync(p, 'utf8');
+            const match = env.match(/KIMI_API_KEY[=:]\s*(.+)/);
+            if (match) return match[1].trim();
+        }
+    }
+
+    return null;
+}
+
+// ── Proxy Server ──────────────────────────────────────────────
+function createProxyServer(apiKey) {
+    const server = http.createServer((req, res) => {
+        // CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+        if (req.method === 'OPTIONS') {
+            res.writeHead(200);
+            res.end();
+            return;
+        }
+
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+
+        // Health check
+        if (req.url === '/v1/health' || req.url === '/health') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'ok', proxy: 'kimi', service: 'openclaw-bridge' }));
+            return;
+        }
+
+        // Models list
+        if (req.url === '/v1/models' && req.method === 'GET') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                object: 'list',
+                data: [
+                    { id: 'kimi-k3', object: 'model', context_length: 1000000 },
+                    { id: 'kimi-k2.5', object: 'model', context_length: 256000 },
+                    { id: 'kimi-k2', object: 'model', context_length: 128000 },
+                    { id: 'kimi-k1.5', object: 'model', context_length: 128000 },
+                ]
+            }));
+            return;
+        }
+
+        // Chat completions (main endpoint)
+        if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', () => {
+                try {
+                    const requestData = JSON.parse(body);
+                    forwardToKimi(req, res, requestData, apiKey);
+                } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                }
+            });
+            return;
+        }
+
+        // Unknown endpoint
         res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'Not found', type: 'invalid_request_error' } }));
+        res.end(JSON.stringify({ error: 'Not found' }));
+    });
+
+    return server;
+}
+
+// ── Forward to Kimi API ───────────────────────────────────────
+function forwardToKimi(req, res, requestData, apiKey) {
+    const isStreaming = requestData.stream !== false;
+
+    const kimiRequest = {
+        model: requestData.model || 'kimi-k3',
+        messages: requestData.messages || [],
+        temperature: requestData.temperature ?? 0.7,
+        max_tokens: requestData.max_tokens,
+        stream: isStreaming,
+    };
+
+    const requestBody = JSON.stringify(kimiRequest);
+
+    const options = {
+        hostname: 'api.moonshot.cn',
+        port: 443,
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Length': Buffer.byteLength(requestBody),
+        },
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+        const headers = { ...proxyRes.headers };
+        delete headers['content-length'];
+        
+        res.writeHead(proxyRes.statusCode, headers);
+
+        proxyRes.on('data', (chunk) => {
+            res.write(chunk);
+        });
+
+        proxyRes.on('end', () => {
+            res.end();
+            console.log(`[${new Date().toISOString()}] Response complete`);
+        });
+    });
+
+    proxyReq.on('error', (err) => {
+        console.error('Proxy error:', err.message);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Kimi API unreachable', details: err.message }));
+    });
+
+    proxyReq.write(requestBody);
+    proxyReq.end();
+}
+
+// ── Main ──────────────────────────────────────────────────────
+function main() {
+    console.log('Kimi-OpenShark Proxy');
+    console.log('========================');
+    console.log('');
+
+    const configPath = findOpenClawConfig();
+    if (configPath) {
+        console.log(`Found OpenClaw config: ${configPath}`);
     }
-});
 
-server.listen(PROXY_PORT, '127.0.0.1', () => {
-    console.log(`
-╔══════════════════════════════════════════════════════════════╗
-║              🎹🦞 Kimi Proxy for OpenShark                   ║
-╚══════════════════════════════════════════════════════════════╝
+    const apiKey = getKimiApiKey(loadConfig());
+    if (!apiKey) {
+        console.error('Kimi API key not found.');
+        console.error('   Set KIMI_API_KEY environment variable, or');
+        console.error('   ensure OpenClaw config has provider.kimi.apiKey');
+        process.exit(1);
+    }
 
-Listening: http://127.0.0.1:${PROXY_PORT}
-Upstream:  ${config.baseUrl}
+    console.log('Kimi API key loaded');
+    console.log('');
 
-OpenShark config:
-  [providers.kimi]
-  base_url = "http://127.0.0.1:${PROXY_PORT}/v1"
-  api_key = "dummy"
+    const server = createProxyServer(apiKey);
+    server.listen(PROXY_PORT, '127.0.0.1', () => {
+        console.log(`Proxy running on http://127.0.0.1:${PROXY_PORT}`);
+        console.log('');
+        console.log('OpenShark config:');
+        console.log(`  base_url = "http://127.0.0.1:${PROXY_PORT}/v1"`);
+        console.log('  api_key = "not-needed-for-local"');
+        console.log('');
+        console.log('Press Ctrl+C to stop');
+    });
 
-Models available:
-  • kimi-k3
-  • kimi-k2.5
-  • kimi-k2
+    server.on('error', (err) => {
+        console.error('Server error:', err.message);
+        process.exit(1);
+    });
+}
 
-Keep this running alongside OpenClaw.
-`);
-});
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-    console.log('\n[Kimi Proxy] Shutting down...');
-    server.close(() => process.exit(0));
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n[Kimi Proxy] Shutting down...');
-    server.close(() => process.exit(0));
-});
+main();

@@ -102,9 +102,26 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" 2>&1 | g
 
 echo -e "${GREEN}✓ SDK components installed${NC}"
 
-# ── Step 4: Verify Project ─────────────────────────────────
+# ── Step 4: AAPT2 ARM64 Fix ────────────────────────────────
 echo ""
-echo -e "${BLUE}${BOLD}▶ Step 4/6: Verifying project...${NC}"
+echo -e "${BLUE}${BOLD}▶ Step 4/6: Checking AAPT2 compatibility...${NC}"
+
+# Check if AAPT2 works (it may fail on some ARM64 devices)
+AAPT2_PATH="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+if [ -f "$AAPT2_PATH" ]; then
+    if ! "$AAPT2_PATH" version > /dev/null 2>&1; then
+        echo -e "${YELLOW}⚠ AAPT2 binary incompatible. Applying workaround...${NC}"
+        # Disable AAPT2 in gradle.properties
+        sed -i 's/^# android.enableAapt2=false/android.enableAapt2=false/' "$PROJECT_DIR/gradle.properties"
+        echo -e "${GREEN}✓ AAPT2 workaround applied${NC}"
+    else
+        echo -e "${GREEN}✓ AAPT2 is compatible${NC}"
+    fi
+fi
+
+# ── Step 5: Verify Project ─────────────────────────────────
+echo ""
+echo -e "${BLUE}${BOLD}▶ Step 5/6: Verifying project...${NC}"
 
 cd "$PROJECT_DIR"
 
@@ -116,15 +133,15 @@ fi
 
 echo -e "${GREEN}✓ Project verified${NC}"
 
-# ── Step 5: Build ──────────────────────────────────────────
+# ── Step 6: Build ──────────────────────────────────────────
 echo ""
-echo -e "${BLUE}${BOLD}▶ Step 5/6: Building APK...${NC}"
+echo -e "${BLUE}${BOLD}▶ Step 6/6: Building APK...${NC}"
 echo -e "${YELLOW}  This will take 10-30 minutes. Keep Termux alive.${NC}"
 echo ""
 
 chmod +x gradlew 2>/dev/null || true
 
-./gradlew assembleDebug --no-daemon --offline 2>&1 | tee "$BUILD_LOG" | while read line; do
+./gradlew assembleDebug --no-daemon 2>&1 | tee "$BUILD_LOG" | while read line; do
     # Show progress indicators
     if echo "$line" | grep -q "CONFIGURE SUCCESSFUL"; then
         echo -e "${GREEN}✓ Gradle configured${NC}"
@@ -137,7 +154,7 @@ done
 
 BUILD_STATUS=${PIPESTATUS[0]}
 
-# ── Step 6: Deliver ────────────────────────────────────────
+# ── Step 7: Deliver ────────────────────────────────────────
 echo ""
 APK_PATH="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
@@ -168,7 +185,11 @@ else
     echo "Check the full log:"
     echo "  cat $BUILD_LOG"
     echo ""
-    echo "Common fixes:"
+    echo "If you see 'AAPT2 daemon startup failed':"
+    echo "  1. Edit gradle.properties and uncomment: android.enableAapt2=false"
+    echo "  2. Re-run this script"
+    echo ""
+    echo "Other common fixes:"
     echo "  - Run: pkg install openjdk-17"
     echo "  - Check internet connection"
     echo "  - Ensure 4GB+ free storage"
