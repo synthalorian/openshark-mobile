@@ -72,7 +72,7 @@ fun ModelsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            if (model.isLocal) Icons.Default.Home else Icons.Default.Public,
+                            if (model.isLocal) Icons.Default.Home else Icons.Default.LocationOn,
                             contentDescription = if (model.isLocal) "Local" else "Cloud",
                             tint = if (isSelected)
                                 MaterialTheme.colorScheme.primary
@@ -129,7 +129,7 @@ fun ModelsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            Icons.Default.PublicOff,
+                            Icons.Default.Warning,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant

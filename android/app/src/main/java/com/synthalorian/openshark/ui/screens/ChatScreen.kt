@@ -82,8 +82,8 @@ fun ChatScreen(
                     IconButton(onClick = { showAgentModePicker = true }) {
                         Icon(
                             imageVector = when (agentMode) {
-                                AgentMode.SAFE -> Icons.Default.Security
-                                AgentMode.FULL_SEND -> Icons.Default.PlayArrow
+                                AgentMode.SAFE -> Icons.Default.Lock
+                                AgentMode.FULL_SEND -> Icons.Default.Star
                             },
                             contentDescription = "Agent Mode",
                             tint = when (agentMode) {
@@ -95,7 +95,7 @@ fun ChatScreen(
                     
                     // Model Picker
                     IconButton(onClick = { showModelPicker = true }) {
-                        Icon(Icons.Default.Sync, contentDescription = "Switch Model")
+                        Icon(Icons.Default.Refresh, contentDescription = "Switch Model")
                     }
                     
                     // Settings
@@ -447,7 +447,7 @@ fun AgentModePickerDialog(
                     mode = AgentMode.SAFE,
                     title = "Safe Mode",
                     description = "Ask before executing tools. Best for sensitive operations.",
-                    icon = Icons.Default.Security,
+                    icon = Icons.Default.Lock,
                     isSelected = currentMode == AgentMode.SAFE,
                     onSelected = { onModeSelected(AgentMode.SAFE) }
                 )
@@ -455,7 +455,7 @@ fun AgentModePickerDialog(
                     mode = AgentMode.FULL_SEND,
                     title = "Full Send",
                     description = "Execute tools automatically. Maximum autonomy.",
-                    icon = Icons.Default.PlayArrow,
+                    icon = Icons.Default.Star,
                     isSelected = currentMode == AgentMode.FULL_SEND,
                     onSelected = { onModeSelected(AgentMode.FULL_SEND) }
                 )
