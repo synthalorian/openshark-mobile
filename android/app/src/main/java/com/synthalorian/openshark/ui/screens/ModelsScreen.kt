@@ -19,8 +19,8 @@ import com.synthalorian.openshark.ui.viewmodel.ChatViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelsScreen(
+    viewModel: ChatViewModel,
     onNavigateBack: () -> Unit,
-    viewModel: ChatViewModel = viewModel()
 ) {
     val models by viewModel.availableModels.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()

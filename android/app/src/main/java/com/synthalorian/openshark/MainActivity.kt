@@ -16,6 +16,9 @@ import com.synthalorian.openshark.ui.screens.ModelsScreen
 import com.synthalorian.openshark.ui.screens.SettingsScreen
 import com.synthalorian.openshark.ui.theme.OpenSharkTheme
 
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.synthalorian.openshark.ui.viewmodel.ChatViewModel
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Switch from splash theme to main app theme
@@ -25,6 +28,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             OpenSharkTheme {
                 val navController = rememberNavController()
+                // Share one ViewModel across all screens
+                val chatViewModel: ChatViewModel = viewModel()
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     NavHost(
                         navController = navController,
@@ -33,17 +38,20 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable("chat") {
                             ChatScreen(
+                                viewModel = chatViewModel,
                                 onNavigateToSettings = { navController.navigate("settings") },
                                 onNavigateToModels = { navController.navigate("models") }
                             )
                         }
                         composable("settings") {
                             SettingsScreen(
+                                viewModel = chatViewModel,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }
                         composable("models") {
                             ModelsScreen(
+                                viewModel = chatViewModel,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }

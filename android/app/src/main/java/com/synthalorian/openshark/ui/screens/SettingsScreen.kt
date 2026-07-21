@@ -4,24 +4,49 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.synthalorian.openshark.ui.viewmodel.ChatViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    viewModel: ChatViewModel,
     onNavigateBack: () -> Unit,
-    viewModel: ChatViewModel = viewModel()
 ) {
     var serverUrl by remember { mutableStateOf(viewModel.getServerUrl()) }
-    var testStatus by remember { mutableStateOf("") }
+    val connectionStatus by viewModel.connectionStatus.collectAsState()
     var isTesting by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf("") }
+    var testSuccess by remember { mutableStateOf(false) }
+
+    // Observe real connection status changes from the ViewModel
+    LaunchedEffect(connectionStatus) {
+        when (connectionStatus) {
+            is ChatViewModel.ConnectionStatus.Connected -> {
+                if (isTesting) {
+                    testResult = "Connected successfully"
+                    testSuccess = true
+                    isTesting = false
+                }
+            }
+            is ChatViewModel.ConnectionStatus.Error -> {
+                if (isTesting) {
+                    testResult = (connectionStatus as ChatViewModel.ConnectionStatus.Error).message
+                    testSuccess = false
+                    isTesting = false
+                }
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -45,55 +70,131 @@ fun SettingsScreen(
             // Server URL
             OutlinedTextField(
                 value = serverUrl,
-                onValueChange = { serverUrl = it },
+                onValueChange = {
+                    serverUrl = it
+                    testResult = "" // Clear test result when user edits
+                },
                 label = { Text("OpenShark Server URL") },
-                placeholder = { Text("http://127.0.0.1:9876") },
+                placeholder = { Text("http://192.168.1.42:9876") },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
                     imeAction = ImeAction.Done
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                isError = serverUrl.isNotBlank() && !isValidUrl(serverUrl),
+                supportingText = {
+                    if (serverUrl.isNotBlank() && !isValidUrl(serverUrl)) {
+                        Text("URL must start with http:// or https://")
+                    }
+                }
             )
+
+            // Help card
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null)
+                        Text(
+                            "Finding your server URL",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "• Server on this phone (Termux): http://127.0.0.1:9876\n" +
+                        "• Server on your computer: http://COMPUTER_IP:9876\n" +
+                        "• Find computer IP: ip addr or ifconfig",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
 
             // Test Connection
             Button(
                 onClick = {
+                    if (!isValidUrl(serverUrl)) return@Button
                     isTesting = true
-                    testStatus = "Testing..."
+                    testResult = ""
                     viewModel.setServerUrl(serverUrl)
-                    // In real app, you'd do an actual health check
-                    isTesting = false
-                    testStatus = "✅ Connected (simulated)"
                 },
-                enabled = !isTesting && serverUrl.isNotBlank(),
+                enabled = !isTesting && serverUrl.isNotBlank() && isValidUrl(serverUrl),
                 modifier = Modifier.fillMaxWidth()
             ) {
+                if (isTesting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Text(if (isTesting) "Testing..." else "Test Connection")
             }
 
-            if (testStatus.isNotEmpty()) {
-                Text(
-                    text = testStatus,
-                    color = if (testStatus.startsWith("✅")) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
+            // Test result
+            if (testResult.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (testSuccess)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (testSuccess) Icons.Default.Check else Icons.Default.Clear,
+                            contentDescription = null,
+                            tint = if (testSuccess)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            testResult,
+                            color = if (testSuccess)
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            else
+                                MaterialTheme.colorScheme.onErrorContainer
+                        )
                     }
-                )
+                }
             }
 
             Divider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Info
-            Text(
-                text = "About OpenShark Mobile",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "OpenShark is an open-source AI coding harness. This mobile app connects to your local OpenShark server running in Termux.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Current connection status
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val statusText = when (connectionStatus) {
+                    is ChatViewModel.ConnectionStatus.Connected -> "Connected"
+                    is ChatViewModel.ConnectionStatus.Connecting -> "Connecting..."
+                    is ChatViewModel.ConnectionStatus.Error -> "Disconnected"
+                }
+                val statusColor = when (connectionStatus) {
+                    is ChatViewModel.ConnectionStatus.Connected ->
+                        MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.error
+                }
+                Text("Status:", style = MaterialTheme.typography.bodyMedium)
+                Text(statusText, color = statusColor, style = MaterialTheme.typography.bodyMedium)
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -103,10 +204,15 @@ fun SettingsScreen(
                     viewModel.setServerUrl(serverUrl)
                     onNavigateBack()
                 },
+                enabled = isValidUrl(serverUrl),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Save Settings")
+                Text("Save & Return")
             }
         }
     }
+}
+
+private fun isValidUrl(url: String): Boolean {
+    return url.startsWith("http://") || url.startsWith("https://")
 }

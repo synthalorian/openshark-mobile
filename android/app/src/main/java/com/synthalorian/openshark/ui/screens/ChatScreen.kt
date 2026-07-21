@@ -30,9 +30,9 @@ import com.synthalorian.openshark.ui.viewmodel.ModelInfo
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
+    viewModel: ChatViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToModels: () -> Unit,
-    viewModel: ChatViewModel = viewModel()
 ) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()

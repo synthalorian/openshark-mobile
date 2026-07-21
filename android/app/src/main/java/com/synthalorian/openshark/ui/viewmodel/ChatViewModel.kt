@@ -49,17 +49,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val baseUrl: String
         get() = prefs.getString("server_url", "http://127.0.0.1:9876") ?: "http://127.0.0.1:9876"
 
-    private val retrofit: Retrofit
-        get() = Retrofit.Builder()
-            .baseUrl(baseUrl)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
+    private var cachedBaseUrl: String? = null
+    private var cachedApi: OpenSharkApi? = null
+    private var cachedSseClient: SseClient? = null
 
     private val api: OpenSharkApi
-        get() = retrofit.create(OpenSharkApi::class.java)
+        get() {
+            val currentUrl = baseUrl
+            if (cachedApi == null || cachedBaseUrl != currentUrl) {
+                cachedBaseUrl = currentUrl
+                val retrofit = Retrofit.Builder()
+                    .baseUrl(currentUrl)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+                cachedApi = retrofit.create(OpenSharkApi::class.java)
+            }
+            return cachedApi!!
+        }
 
     private val sseClient: SseClient
-        get() = SseClient(baseUrl)
+        get() {
+            val currentUrl = baseUrl
+            if (cachedSseClient == null || cachedBaseUrl != currentUrl) {
+                cachedSseClient = SseClient(currentUrl)
+            }
+            return cachedSseClient!!
+        }
 
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()

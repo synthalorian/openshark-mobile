@@ -36,14 +36,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
-        <!-- Foreground service for maintaining connection -->
-        <service
-            android:name=".service.OpenSharkConnectionService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-            
+
     </application>
 
 </manifest>
