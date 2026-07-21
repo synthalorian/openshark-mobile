@@ -177,11 +177,14 @@ echo -e "${GREEN}✓ Config created${NC}"
 cat >> ~/.bashrc << 'EOF'
 
 # OpenShark Mobile
-alias os-start='ollama serve > ~/.ollama/server.log 2>&1 &; sleep 2; openshark server --port 9876'
+alias os-start='ollama serve > ~/.ollama/server.log 2>&1 &; sleep 2; kimii-proxy start; openshark server --port 9876'
 alias os-server='openshark server --port 9876'
 alias os-status='curl -s http://127.0.0.1:9876/v1/health | jq .'
 alias os-models='curl -s http://127.0.0.1:9876/v1/models | jq .'
 alias ollama-logs='tail -f ~/.ollama/server.log'
+alias kimi-proxy-start='kimi-proxy start'
+alias kimi-proxy-stop='kimi-proxy stop'
+alias kimi-proxy-logs='kimi-proxy logs'
 EOF
 
 echo ""
@@ -189,20 +192,31 @@ echo -e "${GREEN}=====================================${NC}"
 echo -e "${GREEN}Setup Complete! 🦈${NC}"
 echo -e "${GREEN}=====================================${NC}"
 echo ""
+echo "Models available:"
+echo "  🏠 Local:  gemma4:e2b, gemma4:e4b (via Ollama)"
+echo "  ☁️  Cloud:  kimi-k3, kimi-k2.5 (via OpenClaw proxy)"
+echo ""
 echo "Next steps:"
 echo ""
-echo "1. Start the server:"
+echo "1. Start everything:"
+echo "   os-start"
+echo ""
+echo "2. Or start individually:"
+echo "   ollama serve &"
+echo "   kimi-proxy start"
 echo "   openshark server --port 9876"
 echo ""
-echo "2. Install the Android APK:"
+echo "3. Install the Android APK:"
 echo "   adb install openshark-mobile.apk"
 echo ""
-echo "3. Open the app and chat!"
+echo "4. Open the app and chat!"
 echo ""
 echo "Shortcuts added to ~/.bashrc:"
-echo "   os-start    — Start Ollama + OpenShark"
-echo "   os-server   — Start OpenShark server only"
-echo "   os-status   — Check server health"
-echo "   os-models   — List available models"
+echo "   os-start          — Start Ollama + Kimi proxy + OpenShark"
+echo "   os-server         — Start OpenShark server only"
+echo "   os-status         — Check server health"
+echo "   os-models         — List available models"
+echo "   kimi-proxy-start  — Start Kimi cloud proxy"
+echo "   kimi-proxy-stop   — Stop Kimi cloud proxy"
 echo ""
-echo -e "${YELLOW}Tip: Add Termux to battery whitelist so Ollama stays running.${NC}"
+echo -e "${YELLOW}Tip: Add Termux to battery whitelist so services stay running.${NC}"
