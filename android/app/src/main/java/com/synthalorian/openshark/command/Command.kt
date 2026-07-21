@@ -126,7 +126,28 @@ sealed class Command(val name: String, val description: String, val usage: Strin
         override val aliases = listOf("run", "tool")
     }
 
-    // Help
+    // Agent / Identity
+    object Agent : Command(
+        "agent",
+        "Switch active agent or manage agents",
+        "/agent <name>  (e.g., /agent synthclaw)"
+    ) {
+        override val aliases = listOf("agents", "who", "identity")
+    }
+
+    object AgentList : Command(
+        "agentlist",
+        "List all available agents"
+    ) {
+        override val aliases = listOf("agents-list", "whoami-all")
+    }
+
+    object Soul : Command(
+        "soul",
+        "Show current agent's soul/persona"
+    ) {
+        override val aliases = listOf("persona", "whoareyou")
+    }
     object Help : Command(
         "help",
         "Show available commands",
@@ -143,6 +164,7 @@ sealed class Command(val name: String, val description: String, val usage: Strin
             Memory, Remember,
             Safe, FullSend,
             Tools, Exec,
+            Agent, AgentList, Soul,
             Help
         )
 
@@ -207,6 +229,12 @@ sealed class Command(val name: String, val description: String, val usage: Strin
                 appendLine("**Tools**")
                 appendLine("`/tools` — List available tools")
                 appendLine("`/exec <name> <args>` — Execute tool")
+                appendLine()
+                
+                appendLine("**Agent / Identity**")
+                appendLine("`/agent <name>` — Switch active agent")
+                appendLine("`/agentlist` — List all agents")
+                appendLine("`/soul` — Show current agent's persona")
                 appendLine()
                 
                 appendLine("**Help**")

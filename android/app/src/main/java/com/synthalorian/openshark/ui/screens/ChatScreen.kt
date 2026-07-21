@@ -33,12 +33,14 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToModels: () -> Unit,
+    onNavigateToAgents: () -> Unit,
 ) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
     val agentMode by viewModel.agentMode.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
+    val activeAgent by viewModel.activeAgent.collectAsState()
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -58,7 +60,8 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("OpenShark 🦈")
+                        val titleText = activeAgent?.let { "${it.emoji} ${it.displayName}" } ?: "OpenShark 🦈"
+                        Text(titleText)
                         Text(
                             text = when (connectionStatus) {
                                 is ChatViewModel.ConnectionStatus.Connected -> 
@@ -78,6 +81,14 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // Agent Switcher
+                    IconButton(onClick = onNavigateToAgents) {
+                        Text(
+                            text = activeAgent?.emoji ?: "🦈",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                    
                     // Agent Mode Toggle
                     IconButton(onClick = { showAgentModePicker = true }) {
                         Icon(

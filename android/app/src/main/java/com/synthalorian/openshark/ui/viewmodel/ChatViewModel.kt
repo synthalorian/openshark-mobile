@@ -11,7 +11,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.synthalorian.openshark.command.Command
+import com.synthalorian.openshark.data.model.Agent
 import com.synthalorian.openshark.data.remote.*
+import com.synthalorian.openshark.data.repository.AgentRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
@@ -46,9 +48,13 @@ data class ModelInfo(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("openshark", Application.MODE_PRIVATE)
     private val clipboard = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val agentRepository = AgentRepository(application)
 
     private val baseUrl: String
         get() = prefs.getString("server_url", "http://127.0.0.1:9876") ?: "http://127.0.0.1:9876"
+
+    val agents = agentRepository.agents
+    val activeAgent = agentRepository.activeAgent
 
     private var cachedBaseUrl: String? = null
     private var cachedApi: OpenSharkApi? = null
@@ -209,7 +215,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val model = "🤖 Model: `${_currentModel.value}`"
                 val mode = "🛡️ Mode: `${_agentMode.value.name.lowercase()}`"
-                addSystemMessage("$status\n$model\n$mode")
+                val agent = activeAgent.value?.let { "${it.emoji} Agent: **${it.displayName}**" } ?: "👤 Agent: None"
+                addSystemMessage("$status\n$model\n$mode\n$agent")
             }
 
             is Command.Config -> {
@@ -339,6 +346,55 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 executeTool(toolName, toolArgs)
             }
 
+            is Command.Agent -> {
+                if (args.isBlank()) {
+                    val current = activeAgent.value
+                    if (current != null) {
+                        addSystemMessage("Current agent: ${current.emoji} **${current.displayName}**\nUse `/agentlist` to see all agents.")
+                    } else {
+                        addSystemMessage("No active agent. Use `/agentlist` to see available agents.")
+                    }
+                    return
+                }
+                val agentName = args.trim().lowercase()
+                val agent = agentRepository.getAgentByName(agentName)
+                if (agent != null) {
+                    agentRepository.setActiveAgent(agent)
+                    addSystemMessage("${agent.emoji} Switched to **${agent.displayName}**\n_${agent.tagline}_")
+                } else {
+                    addSystemMessage("❌ Agent `$agentName` not found. Use `/agentlist` to see available agents.")
+                }
+            }
+
+            is Command.AgentList -> {
+                val allAgents = agents.value
+                val currentId = activeAgent.value?.id
+                if (allAgents.isEmpty()) {
+                    addSystemMessage("No agents configured.")
+                    return
+                }
+                val list = allAgents.joinToString("\n") { a ->
+                    val prefix = if (a.id == currentId) "▸ " else "  "
+                    val type = if (a.isDefault) "🔒" else "✏️"
+                    "$prefix${a.emoji} **${a.displayName}** $type\n     _${a.tagline}_"
+                }
+                addSystemMessage("**Agents**\n$list\n\nUse `/agent <name>` to switch.")
+            }
+
+            is Command.Soul -> {
+                val agent = activeAgent.value
+                if (agent == null) {
+                    addSystemMessage("No active agent.")
+                    return
+                }
+                val soulText = if (agent.soul.isNotBlank()) {
+                    agent.soul
+                } else {
+                    "${agent.displayName} has no soul defined yet. Edit the agent to add a persona."
+                }
+                addSystemMessage("${agent.emoji} **${agent.displayName}**\n\n$soulText")
+            }
+
             is Command.Help -> {
                 if (args.isNotBlank()) {
                     val cmd = Command.ALL.find { it.name == args || it.aliases.contains(args) }
@@ -374,7 +430,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     message = content,
                     model = _currentModel.value,
                     stream = true,
-                    session_id = sessionId
+                    session_id = sessionId,
+                    system_prompt = activeAgent.value?.systemPrompt?.takeIf { it.isNotBlank() }
                 )
 
                 var fullResponse = ""

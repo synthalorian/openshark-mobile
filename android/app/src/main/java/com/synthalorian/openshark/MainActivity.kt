@@ -8,9 +8,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.synthalorian.openshark.ui.screens.AgentEditorScreen
+import com.synthalorian.openshark.ui.screens.AgentsScreen
 import com.synthalorian.openshark.ui.screens.ChatScreen
 import com.synthalorian.openshark.ui.screens.ModelsScreen
 import com.synthalorian.openshark.ui.screens.SettingsScreen
@@ -40,7 +44,8 @@ class MainActivity : ComponentActivity() {
                             ChatScreen(
                                 viewModel = chatViewModel,
                                 onNavigateToSettings = { navController.navigate("settings") },
-                                onNavigateToModels = { navController.navigate("models") }
+                                onNavigateToModels = { navController.navigate("models") },
+                                onNavigateToAgents = { navController.navigate("agents") }
                             )
                         }
                         composable("settings") {
@@ -52,6 +57,32 @@ class MainActivity : ComponentActivity() {
                         composable("models") {
                             ModelsScreen(
                                 viewModel = chatViewModel,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("agents") {
+                            AgentsScreen(
+                                viewModel = chatViewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToEditor = { agentId ->
+                                    navController.navigate("agentEditor?agentId=$agentId")
+                                }
+                            )
+                        }
+                        composable(
+                            route = "agentEditor?agentId={agentId}",
+                            arguments = listOf(
+                                navArgument("agentId") {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = null
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val agentId = backStackEntry.arguments?.getString("agentId")
+                            AgentEditorScreen(
+                                viewModel = chatViewModel,
+                                agentId = agentId,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }
