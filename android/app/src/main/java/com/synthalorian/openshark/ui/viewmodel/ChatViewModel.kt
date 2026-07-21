@@ -39,12 +39,29 @@ enum class ToolStatus { PENDING, EXECUTING, COMPLETED, FAILED }
 
 enum class AgentMode { SAFE, FULL_SEND }
 
+/**
+ * Enhanced ModelInfo with provider type (local vs cloud).
+ */
 data class ModelInfo(
     val name: String,
     val provider: String,
-    contextLength: Int,
+    val contextLength: Int,
     val isLocal: Boolean = false,
-    val costPer1k: Double = 0.0
+    val costPer1k: Double = 0.0,
+    val providerId: String = "",
+    val providerBaseUrl: String = ""
+)
+
+/**
+ * Discovered provider with its models.
+ */
+data class ProviderInfo(
+    val id: String,
+    val name: String,
+    val baseUrl: String,
+    val type: ProviderDiscovery.ProviderType,
+    val models: List<ModelInfo>,
+    val isHealthy: Boolean
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,6 +69,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val clipboard = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val agentRepository = AgentRepository(application)
     private val serverDiscovery = ServerDiscovery()
+    private val providerDiscovery = ProviderDiscovery()
     
     // Background job for auto-reconnect polling
     private var reconnectJob: Job? = null
@@ -110,6 +128,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableModels = MutableStateFlow<List<ModelInfo>>(emptyList())
     val availableModels: StateFlow<List<ModelInfo>> = _availableModels.asStateFlow()
     
+    // Discovered providers (Ollama, Kimi proxy, etc.)
+    private val _providers = MutableStateFlow<List<ProviderInfo>>(emptyList())
+    val providers: StateFlow<List<ProviderInfo>> = _providers.asStateFlow()
+    
     // Whether auto-discovery is actively searching
     private val _isDiscovering = MutableStateFlow(false)
     val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
@@ -132,7 +154,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadSettings()
-        // Auto-discover on startup instead of just checking
+        // Auto-discover everything on startup
         autoDiscoverAndConnect()
     }
 
@@ -156,7 +178,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Auto-discover the server and start background reconnect polling.
+     * Auto-discover the server AND providers (Ollama, Kimi proxy).
      * This is the KimiClaw-style auto-connect flow.
      */
     private fun autoDiscoverAndConnect() {
@@ -167,20 +189,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val savedUrl = prefs.getString("server_url", null)
             _discoveredUrls.value = serverDiscovery.getDiscoveryUrls(savedUrl)
             
-            Log.d("ChatViewModel", "Auto-discovering server...")
+            // Step 1: Discover providers (Ollama, Kimi proxy)
+            Log.d("ChatViewModel", "Auto-discovering providers (Ollama, Kimi)...")
+            val discoveredProviders = providerDiscovery.discoverAll()
+            
+            // Convert to ProviderInfo and update state
+            val providerInfos = discoveredProviders.map { dp ->
+                ProviderInfo(
+                    id = dp.id,
+                    name = dp.name,
+                    baseUrl = dp.baseUrl,
+                    type = dp.type,
+                    models = dp.models.map { dm ->
+                        ModelInfo(
+                            name = dm.name,
+                            provider = dp.name,
+                            contextLength = dm.contextLength,
+                            isLocal = dm.providerType == ProviderDiscovery.ProviderType.LOCAL,
+                            costPer1k = 0.0,
+                            providerId = dp.id,
+                            providerBaseUrl = dp.baseUrl
+                        )
+                    },
+                    isHealthy = dp.isHealthy
+                )
+            }
+            _providers.value = providerInfos
+            
+            // Build unified model list from all providers
+            val allModels = providerInfos.flatMap { it.models }
+            if (allModels.isNotEmpty()) {
+                _availableModels.value = allModels
+                Log.i("ChatViewModel", "Discovered ${allModels.size} models from ${providerInfos.size} providers")
+            }
+            
+            // Step 2: Discover OpenShark server (for memory, tools, etc.)
+            Log.d("ChatViewModel", "Auto-discovering OpenShark server...")
             val discovered = serverDiscovery.discover(savedUrl)
             
             _isDiscovering.value = false
             
             if (discovered != null) {
                 Log.i("ChatViewModel", "Auto-discovered server at $discovered")
-                // Save the discovered URL
                 prefs.edit().putString("server_url", discovered).apply()
                 _baseUrl.value = discovered
                 _connectionStatus.value = ConnectionStatus.Connected
-                fetchModels()
+                // Also fetch models from the server if it has any
+                fetchModelsFromServer()
+            } else if (allModels.isNotEmpty()) {
+                // We have providers but no OpenShark server — that's OK for basic chat
+                Log.w("ChatViewModel", "No OpenShark server found, but ${allModels.size} models available via direct providers")
+                _connectionStatus.value = ConnectionStatus.Connected
             } else {
-                Log.w("ChatViewModel", "No server found, starting background polling")
+                Log.w("ChatViewModel", "No server or providers found, starting background polling")
                 _connectionStatus.value = ConnectionStatus.Waiting
                 startReconnectPolling()
             }
@@ -189,17 +250,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Start background polling that keeps trying to find/connect to the server.
-     * This runs until connection succeeds.
      */
     private fun startReconnectPolling() {
         reconnectJob?.cancel()
         reconnectJob = viewModelScope.launch {
             var attempt = 0
-            val maxDelay = 30000L  // Cap at 30 seconds
+            val maxDelay = 30000L
             
             while (isActive && _connectionStatus.value != ConnectionStatus.Connected) {
                 attempt++
-                // Exponential backoff: 2s, 4s, 8s, 16s, 30s, 30s...
                 val delayMs = min(2000L * (1L shl (attempt - 1)), maxDelay)
                 
                 Log.d("ChatViewModel", "Reconnect attempt $attempt in ${delayMs}ms")
@@ -207,15 +266,46 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 
                 if (!isActive) break
                 
+                // Try providers first
+                val providers = providerDiscovery.discoverAll()
+                if (providers.isNotEmpty()) {
+                    val allModels = providers.flatMap { dp ->
+                        dp.models.map { dm ->
+                            ModelInfo(
+                                name = dm.name,
+                                provider = dp.name,
+                                contextLength = dm.contextLength,
+                                isLocal = dm.providerType == ProviderDiscovery.ProviderType.LOCAL,
+                                costPer1k = 0.0,
+                                providerId = dp.id,
+                                providerBaseUrl = dp.baseUrl
+                            )
+                        }
+                    }
+                    _availableModels.value = allModels
+                    _providers.value = providers.map { dp ->
+                        ProviderInfo(
+                            id = dp.id,
+                            name = dp.name,
+                            baseUrl = dp.baseUrl,
+                            type = dp.type,
+                            models = allModels.filter { it.provider == dp.name },
+                            isHealthy = dp.isHealthy
+                        )
+                    }
+                }
+                
+                // Try OpenShark server
                 val savedUrl = prefs.getString("server_url", null)
                 val discovered = serverDiscovery.discover(savedUrl)
                 
-                if (discovered != null) {
-                    Log.i("ChatViewModel", "Reconnected to $discovered")
-                    prefs.edit().putString("server_url", discovered).apply()
-                    _baseUrl.value = discovered
+                if (discovered != null || _availableModels.value.isNotEmpty()) {
+                    if (discovered != null) {
+                        prefs.edit().putString("server_url", discovered).apply()
+                        _baseUrl.value = discovered
+                    }
                     _connectionStatus.value = ConnectionStatus.Connected
-                    fetchModels()
+                    if (discovered != null) fetchModelsFromServer()
                     break
                 }
             }
@@ -240,7 +330,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val response = api.healthCheck()
                 if (response.isSuccessful) {
                     _connectionStatus.value = ConnectionStatus.Connected
-                    fetchModels()
+                    fetchModelsFromServer()
                 } else {
                     _connectionStatus.value = ConnectionStatus.Error("Server error: ${response.code()}")
                 }
@@ -257,12 +347,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         autoDiscoverAndConnect()
     }
 
-    fun fetchModels() {
+    /**
+     * Fetch models from the OpenShark server and merge with discovered provider models.
+     */
+    fun fetchModelsFromServer() {
         viewModelScope.launch {
             try {
                 val response = api.getModels()
                 if (response.isSuccessful) {
-                    val models = response.body()?.map { model ->
+                    val serverModels = response.body()?.map { model ->
                         ModelInfo(
                             name = model.name,
                             provider = model.provider,
@@ -271,11 +364,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             costPer1k = model.cost_per_1k_input + model.cost_per_1k_output
                         )
                     } ?: emptyList()
-                    _availableModels.value = models
+                    
+                    // Merge server models with discovered provider models
+                    val providerModels = _providers.value.flatMap { it.models }
+                    val merged = (providerModels + serverModels).distinctBy { it.name }
+                    _availableModels.value = merged
                 }
             } catch (e: Exception) {
-                Log.e("ChatViewModel", "Failed to fetch models", e)
+                Log.e("ChatViewModel", "Failed to fetch models from server", e)
             }
+        }
+    }
+
+    /**
+     * Get the appropriate base URL for a model based on its provider.
+     */
+    private fun getModelBaseUrl(modelName: String): String {
+        val model = _availableModels.value.find { it.name == modelName }
+        return when {
+            model?.providerBaseUrl?.isNotBlank() == true -> model.providerBaseUrl
+            model?.provider?.contains("Ollama", ignoreCase = true) == true -> "http://127.0.0.1:11434/v1"
+            model?.provider?.contains("Kimi", ignoreCase = true) == true -> "http://127.0.0.1:9000/v1"
+            else -> effectiveBaseUrl
         }
     }
 
@@ -320,7 +430,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val model = "🤖 Model: `${_currentModel.value}`"
                 val mode = "🛡️ Mode: `${_agentMode.value.name.lowercase()}`"
                 val agent = activeAgent.value?.let { "${it.emoji} Agent: **${it.displayName}**" } ?: "👤 Agent: None"
-                addSystemMessage("$status\n$model\n$mode\n$agent")
+                val providers = _providers.value.joinToString("\n") { p ->
+                    val typeEmoji = if (p.type == ProviderDiscovery.ProviderType.LOCAL) "🏠" else "☁️"
+                    "  $typeEmoji ${p.name}: ${p.models.size} models"
+                }
+                addSystemMessage("$status\n$model\n$mode\n$agent\n\n**Providers:**\n$providers")
             }
 
             is Command.Config -> {
@@ -329,7 +443,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     appendLine("Server: `${effectiveBaseUrl}`")
                     appendLine("Model: `${_currentModel.value}`")
                     appendLine("Mode: `${_agentMode.value.name.lowercase()}`")
+                    appendLine("Providers: `${_providers.value.size}`")
                     appendLine("Models cached: `${_availableModels.value.size}`")
+                    _providers.value.forEach { p ->
+                        val emoji = if (p.type == ProviderDiscovery.ProviderType.LOCAL) "🏠" else "☁️"
+                        appendLine("  $emoji ${p.name}: ${p.baseUrl}")
+                    }
                 }
                 addSystemMessage(config)
             }
@@ -354,32 +473,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     addSystemMessage("No models available. Check your server connection with `/status`.")
                     return
                 }
+                val localCount = models.count { it.isLocal }
+                val cloudCount = models.size - localCount
                 val list = models.joinToString("\n") { m ->
                     val prefix = if (m.name == _currentModel.value) "▸ " else "  "
                     val type = if (m.isLocal) "🏠" else "☁️"
                     "$prefix`${m.name}` $type ${m.provider}"
                 }
-                addSystemMessage("**Available Models**\n$list")
+                addSystemMessage("**Available Models** ($localCount local, $cloudCount cloud)\n$list")
             }
 
             is Command.Local -> {
                 val local = _availableModels.value.filter { it.isLocal }
                 if (local.isEmpty()) {
-                    addSystemMessage("No local models available.")
+                    addSystemMessage("🏠 No local models found.\n\n**To use local models:**\n1. Install Ollama in Termux\n2. Pull a model: `ollama pull gemma4:e2b`\n3. The app will auto-detect it")
                     return
                 }
                 switchModel(local.first().name)
-                addSystemMessage("🏠 Switched to local model: `${local.first().name}`")
+                addSystemMessage("🏠 Switched to local model: `${local.first().name}`\n\nOther local models:\n${local.drop(1).joinToString("\n") { "  • ${it.name}" }}")
             }
 
             is Command.Cloud -> {
                 val cloud = _availableModels.value.filter { !it.isLocal }
                 if (cloud.isEmpty()) {
-                    addSystemMessage("No cloud models available.")
+                    addSystemMessage("☁️ No cloud models found.\n\n**To use cloud models:**\n1. Start the Kimi proxy in Termux:\n   `cd ~/openshark-mobile && node proxy/kimi-proxy.js`\n2. Or run: `bash scripts/start-proxy.sh`\n3. The app will auto-detect it")
                     return
                 }
                 switchModel(cloud.first().name)
-                addSystemMessage("☁️ Switched to cloud model: `${cloud.first().name}`")
+                addSystemMessage("☁️ Switched to cloud model: `${cloud.first().name}`\n\nOther cloud models:\n${cloud.drop(1).joinToString("\n") { "  • ${it.name}" }}")
             }
 
             is Command.New -> {
@@ -435,7 +556,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             is Command.Tools -> {
-                // TODO: Fetch tools from server
                 addSystemMessage("🔧 **Available Tools**\n- `shell` — Execute shell commands\n- `file_read` — Read files\n- `file_write` — Write files\n\nUse `/exec <name> <args>` to run a tool.")
             }
 
@@ -524,15 +644,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun sendMessage(content: String) {
         if (content.isBlank()) return
         
-        // If not connected, show helpful message instead of failing
-        if (_connectionStatus.value !is ConnectionStatus.Connected) {
+        // If not connected AND no providers, show helpful message
+        if (_connectionStatus.value !is ConnectionStatus.Connected && _providers.value.isEmpty()) {
             addSystemMessage(
-                "⏳ **Waiting for OpenShark server**\n\n" +
-                "The app is trying to auto-connect to your Termux OpenShark server.\n\n" +
-                "**To start the server:**\n" +
+                "⏳ **Waiting for OpenShark server or providers**\n\n" +
+                "The app is trying to auto-connect to:\n" +
+                "• Ollama (local models) at `127.0.0.1:11434`\n" +
+                "• Kimi proxy (cloud models) at `127.0.0.1:9000`\n" +
+                "• OpenShark server at `127.0.0.1:9876`\n\n" +
+                "**To get started:**\n" +
                 "1. Open Termux\n" +
-                "2. Run: `openshark server`\n" +
-                "3. Or use the install script: `~/openshark/start.sh`\n\n" +
+                "2. For local models: `ollama serve`\n" +
+                "3. For cloud models: `bash scripts/start-proxy.sh`\n" +
+                "4. For full OpenShark: `openshark server`\n\n" +
                 "**Or set a custom URL:**\n" +
                 "Use `/connect http://YOUR_IP:9876`"
             )
@@ -546,6 +670,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val assistantMessage = Message(role = "assistant", content = "", isStreaming = true)
                 _messages.value = _messages.value + assistantMessage
 
+                // Use the appropriate base URL for the current model's provider
+                val modelBaseUrl = getModelBaseUrl(_currentModel.value)
+                val client = if (modelBaseUrl != effectiveBaseUrl) {
+                    // Create a temporary client for this provider
+                    SseClient(modelBaseUrl)
+                } else {
+                    sseClient
+                }
+
                 val request = ChatRequest(
                     message = content,
                     model = _currentModel.value,
@@ -556,7 +689,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 var fullResponse = ""
 
-                sseClient.streamChat(request).collect { chunk ->
+                client.streamChat(request).collect { chunk ->
                     when {
                         chunk.error != null -> {
                             updateLastMessage("Error: ${chunk.error}", isStreaming = false)
@@ -580,7 +713,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 updateLastMessage("Error: ${e.message}", isStreaming = false)
                 _isLoading.value = false
                 _connectionStatus.value = ConnectionStatus.Error(e.message ?: "Unknown error")
-                // Trigger reconnect polling after error
                 startReconnectPolling()
             }
         }
@@ -667,12 +799,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun setServerUrl(url: String) {
         prefs.edit().putString("server_url", url).apply()
         _baseUrl.value = url
-        // Clear caches so new URL is used
         cachedBaseUrl = null
         cachedApi = null
         cachedSseClient = null
         checkConnection()
-        fetchModels()
+        fetchModelsFromServer()
     }
 
     fun getServerUrl(): String = effectiveBaseUrl
