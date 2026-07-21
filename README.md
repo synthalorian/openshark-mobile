@@ -1,8 +1,12 @@
 # OpenShark Mobile 🦈📱
 
-**Standalone AI coding harness for Android. No cloud required, no SSH tunnels, no compromises.**
+**Offline-first AI coding assistant for Android. Run local LLMs in your pocket, switch to cloud when you need the heavy lifting.**
 
-Run OpenShark natively on your Android device via Termux, with a native Android chat interface. Full agent autonomy, persistent memory, tool execution — in your pocket, fully offline.
+Built with Kotlin, Jetpack Compose, and Rust. No cloud required for daily use — your data never leaves your device.
+
+![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Android-green.svg)
+![Kotlin](https://img.shields.io/badge/kotlin-1.9.24-purple.svg)
 
 ---
 
