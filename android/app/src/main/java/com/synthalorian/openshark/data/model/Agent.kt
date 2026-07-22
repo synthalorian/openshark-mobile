@@ -91,5 +91,6 @@ enum class AgentVoice {
     DIRECT,     // Concise, no fluff
     MEASURED,   // Thoughtful, analytical
     PLAYFUL,    // Witty, uses humor
-    STERN       // Critical, calls out mistakes
+    STERN,      // Critical, calls out mistakes
+    BALANCED    // Default, well-rounded
 }

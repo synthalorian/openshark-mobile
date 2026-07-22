@@ -13,6 +13,7 @@ import android.provider.Telephony
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import android.view.accessibility.AccessibilityNodeInfo
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.*
 import java.io.File
@@ -126,7 +127,7 @@ class AndroidBridgeService : Service() {
                     uri == "/ui/swipe" -> handleUiSwipe(session)
                     uri == "/ui/click" -> handleUiClick(session)
                     uri == "/ui/input" -> handleUiInput(session)
-                    uri == "/ui/key" -> handleUiKey(session)
+                    uri == "/ui/key" -> handleUiKeyEvent(session)
                     uri == "/ui/screenshot" -> handleUiScreenshot()
                     else -> jsonError("Not found: $uri", Response.Status.NOT_FOUND)
                 }
@@ -588,15 +589,15 @@ class AndroidBridgeService : Service() {
             } else {
                 // Find focused input field
                 val root = a11y.rootInActiveWindow
-                val focused = root?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+                val focused = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 val result = focused?.let {
                     val args = android.os.Bundle()
-                    if (clear) it.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SELECT_ALL)
+                    if (clear) it.performAction(AccessibilityNodeInfo.ACTION_SELECT_ALL)
                     args.putCharSequence(
-                        android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                         text
                     )
-                    it.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                    it.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
                 } ?: false
                 focused?.recycle()
                 root?.recycle()

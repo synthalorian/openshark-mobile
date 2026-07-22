@@ -23,6 +23,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import fi.iki.elonen.NanoHTTPD
+import kotlinx.coroutines.*
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
@@ -97,7 +99,7 @@ class OpenSharkAccessibilityService : AccessibilityService() {
         // Start the HTTP bridge
         bridge = UiAutomationBridge().apply {
             try {
-                start()
+                start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                 Log.i(TAG, "UI Automation bridge started on port $PORT")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start bridge", e)
@@ -443,9 +445,9 @@ class OpenSharkAccessibilityService : AccessibilityService() {
         
         private fun handleTap(session: IHTTPSession): Response {
             val params = parseBody(session)
-            val x = params["x"]?.toFloatOrNull() ?: return jsonError("Missing x")
-            val y = params["y"]?.toFloatOrNull() ?: return jsonError("Missing y")
-            val duration = params["duration_ms"]?.toLongOrNull() ?: 50
+            val x = (params["x"] as? Number)?.toFloat() ?: return jsonError("Missing x")
+            val y = (params["y"] as? Number)?.toFloat() ?: return jsonError("Missing y")
+            val duration = (params["duration_ms"] as? Number)?.toLong() ?: 50
             
             val success = tap(x, y, duration)
             return jsonResponse(mapOf("success" to success, "action" to "tap", "x" to x, "y" to y))
@@ -453,11 +455,11 @@ class OpenSharkAccessibilityService : AccessibilityService() {
         
         private fun handleSwipe(session: IHTTPSession): Response {
             val params = parseBody(session)
-            val x1 = params["x1"]?.toFloatOrNull() ?: return jsonError("Missing x1")
-            val y1 = params["y1"]?.toFloatOrNull() ?: return jsonError("Missing y1")
-            val x2 = params["x2"]?.toFloatOrNull() ?: return jsonError("Missing x2")
-            val y2 = params["y2"]?.toFloatOrNull() ?: return jsonError("Missing y2")
-            val duration = params["duration_ms"]?.toLongOrNull() ?: 300
+            val x1 = (params["x1"] as? Number)?.toFloat() ?: return jsonError("Missing x1")
+            val y1 = (params["y1"] as? Number)?.toFloat() ?: return jsonError("Missing y1")
+            val x2 = (params["x2"] as? Number)?.toFloat() ?: return jsonError("Missing x2")
+            val y2 = (params["y2"] as? Number)?.toFloat() ?: return jsonError("Missing y2")
+            val duration = (params["duration_ms"] as? Number)?.toLong() ?: 300
             
             val success = swipe(x1, y1, x2, y2, duration)
             return jsonResponse(mapOf("success" to success, "action" to "swipe"))
