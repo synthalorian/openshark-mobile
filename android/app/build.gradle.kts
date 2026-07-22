@@ -68,8 +68,8 @@ dependencies {
     // Markdown rendering
     implementation(libs.compose.markdown)
 
-    // Coroutines
-    implementation(libs.kotlinx.coroutines.android)
+    // NanoHTTPD for embedded HTTP servers (bridge + accessibility)
+    implementation(libs.nanohttpd)
 
     // Testing
     testImplementation(libs.junit)

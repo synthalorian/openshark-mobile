@@ -78,4 +78,6 @@
     <string name="action_done">Done</string>
     <string name="action_approve">Approve</string>
     <string name="action_deny">Deny</string>
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">OpenShark UI Automation — enables AI control of your device. OpenShark can tap buttons, type text, swipe screens, and read UI elements to complete tasks for you. Required for full device control mode.</string>
 </resources>
