@@ -19,6 +19,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("SIGNING_KEYSTORE_PATH") ?: "openshark-release.keystore"
+            storeFile = file(keystorePath)
+            storePassword = System.getenv("SIGNING_KEYSTORE_PASSWORD") ?: "openshark123"
+            keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "openshark"
+            keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "openshark123"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -26,6 +36,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
