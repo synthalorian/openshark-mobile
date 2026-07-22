@@ -307,7 +307,7 @@ class OpenSharkAccessibilityService : AccessibilityService() {
         val node = findNode(selector) ?: return false
         
         if (clearFirst) {
-            node.performAction(AccessibilityNodeInfo.ACTION_SELECT_ALL)
+            node.performAction(0x00020001)
             node.performAction(AccessibilityNodeInfo.ACTION_CUT)
         }
         
@@ -490,7 +490,7 @@ class OpenSharkAccessibilityService : AccessibilityService() {
                 val result = editable?.let {
                     val args = android.os.Bundle()
                     if (clear) {
-                        it.performAction(AccessibilityNodeInfo.ACTION_SELECT_ALL)
+                        it.performAction(0x00020001)
                     }
                     args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
                     it.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)

@@ -107,7 +107,7 @@ class AndroidBridgeService : Service() {
             val uri = session.uri
             val method = session.method
 
-            Log.d(TAG, "${method.name()} $uri")
+            Log.d(TAG, "${method.name} $uri")
 
             return try {
                 when {
@@ -595,7 +595,7 @@ class AndroidBridgeService : Service() {
                 val focused = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 val result = focused?.let {
                     val args = android.os.Bundle()
-                    if (clear) it.performAction(AccessibilityNodeInfo.ACTION_SELECT_ALL)
+                    if (clear) it.performAction(0x00020001)
                     args.putCharSequence(
                         AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                         text
