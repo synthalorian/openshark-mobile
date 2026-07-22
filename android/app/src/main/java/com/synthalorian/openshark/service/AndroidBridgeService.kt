@@ -15,7 +15,10 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import android.view.accessibility.AccessibilityNodeInfo
 import fi.iki.elonen.NanoHTTPD
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -612,11 +615,11 @@ class AndroidBridgeService : Service() {
             val key = params["key"] as? String ?: return jsonError("Missing key")
             
             val action = when (key.uppercase()) {
-                "BACK" -> android.view.accessibility.AccessibilityService.GLOBAL_ACTION_BACK
-                "HOME" -> android.view.accessibility.AccessibilityService.GLOBAL_ACTION_HOME
-                "RECENTS" -> android.view.accessibility.AccessibilityService.GLOBAL_ACTION_RECENTS
-                "NOTIFICATIONS" -> android.view.accessibility.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
-                "POWER" -> android.view.accessibility.AccessibilityService.GLOBAL_ACTION_POWER_DIALOG
+                "BACK" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK
+                "HOME" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME
+                "RECENTS" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS
+                "NOTIFICATIONS" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
+                "POWER" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_POWER_DIALOG
                 else -> return jsonError("Unknown key: $key. Use: BACK, HOME, RECENTS, NOTIFICATIONS, POWER")
             }
             
