@@ -82,7 +82,56 @@ pub fn start_gateway(config_dir: PathBuf, port: u16) -> Result<u16> {
         tools: ToolState::new(home),
         started: std::time::Instant::now(),
         requests: std::sync::atomic::AtomicU64::new(0),
+        model_context: std::sync::RwLock::new(std::collections::HashMap::new()),
     });
+
+    // Background: probe each provider's /models for real context lengths.
+    // Kimi's K3 is 1M — the 128k fallback would lie in the UI.
+    {
+        let probe_state = state.clone();
+        rt.spawn(async move {
+            let providers: Vec<(String, String, String)> = {
+                let cfg = probe_state.config.read().unwrap();
+                cfg.providers
+                    .iter()
+                    .map(|p| (p.name.clone(), p.base_url.clone(), p.api_key.clone()))
+                    .collect()
+            };
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_default();
+            for (name, base, key) in providers {
+                let url = format!("{}/models", base.trim_end_matches('/'));
+                let mut req = client.get(&url);
+                if !key.is_empty() {
+                    req = req.bearer_auth(&key);
+                }
+                match req.send().await {
+                    Ok(resp) => match resp.json::<serde_json::Value>().await {
+                        Ok(json) => {
+                            let mut found = 0usize;
+                            if let Some(arr) = json.get("data").and_then(|d| d.as_array()) {
+                                let mut map = probe_state.model_context.write().unwrap();
+                                for m in arr {
+                                    if let (Some(id), Some(len)) = (
+                                        m.get("id").and_then(|v| v.as_str()),
+                                        m.get("context_length").and_then(|v| v.as_i64()),
+                                    ) {
+                                        map.insert(id.to_string(), len);
+                                        found += 1;
+                                    }
+                                }
+                            }
+                            log::info!("probed {found} context lengths from provider '{name}'");
+                        }
+                        Err(e) => log::warn!("provider '{name}' /models parse failed: {e}"),
+                    },
+                    Err(e) => log::warn!("provider '{name}' /models probe failed: {e}"),
+                }
+            }
+        });
+    }
 
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     *SHUTDOWN.lock().unwrap() = Some(shutdown_tx);

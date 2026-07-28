@@ -26,6 +26,9 @@ pub struct AppState {
     pub tools: ToolState,
     pub started: Instant,
     pub requests: AtomicU64,
+    /// Probed context lengths per model id (from each provider's /models).
+    /// Empty until the background probe completes; 128k is the fallback.
+    pub model_context: RwLock<std::collections::HashMap<String, i64>>,
 }
 
 // -- Request/response types (must match the Kotlin data classes) ------------
@@ -143,10 +146,16 @@ async fn list_models(State(state): State<Arc<AppState>>) -> Json<Vec<ModelInfo>>
     let mut out = Vec::new();
     for p in &cfg.providers {
         for m in &p.models {
+            let probed = state
+                .model_context
+                .read()
+                .unwrap()
+                .get(m)
+                .copied();
             out.push(ModelInfo {
                 name: m.clone(),
                 provider: p.name.clone(),
-                context_length: 128_000,
+                context_length: probed.unwrap_or(128_000),
                 cost_per_1k_input: 0.0,
                 cost_per_1k_output: 0.0,
                 capabilities: vec!["chat".to_string()],
@@ -355,11 +364,18 @@ async fn session_stats(
     match state.memory.session_stats(&sid) {
         Ok((messages, approx_tokens)) => {
             let cfg = state.config.read().unwrap();
+            let ctx_len = state
+                .model_context
+                .read()
+                .unwrap()
+                .get(&cfg.default_model)
+                .copied()
+                .unwrap_or(128_000);
             Json(serde_json::json!({
                 "session_id": sid,
                 "messages": messages,
                 "approx_tokens": approx_tokens,
-                "context_length": 128_000,
+                "context_length": ctx_len,
                 "default_model": cfg.default_model,
             }))
         }
