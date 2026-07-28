@@ -227,8 +227,16 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    val titleText = activeAgent?.let { "${it.emoji} ${it.displayName}" } ?: "OpenShark 🦈"
-                    Text(titleText, maxLines = 1)
+                    Column {
+                        val titleText = activeAgent?.let { "${it.emoji} ${it.displayName}" } ?: "OpenShark 🦈"
+                        Text(titleText, maxLines = 1, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            currentModel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
                 },
                 actions = {
                     // Agent Switcher

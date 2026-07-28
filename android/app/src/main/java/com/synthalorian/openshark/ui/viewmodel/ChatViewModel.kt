@@ -381,9 +381,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     } ?: emptyList()
                     
-                    // Merge server models with discovered provider models
+                    // Merge server models with discovered provider models.
+                    // Server (gateway) models win name collisions so gateway-
+                    // served models route through the gateway (memory/sessions),
+                    // not the legacy direct proxies.
                     val providerModels = _providers.value.flatMap { it.models }
-                    val merged = (providerModels + serverModels).distinctBy { it.name }
+                    val merged = (serverModels + providerModels).distinctBy { it.name }
                     _availableModels.value = merged
                 }
             } catch (e: Exception) {
@@ -398,7 +401,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun getModelBaseUrl(modelName: String): String {
         val model = _availableModels.value.find { it.name == modelName }
         return when {
+            // Directly-discovered provider (Termux Ollama, old kimi-proxy) —
+            // talk to it straight, even while the gateway is up
             model?.providerBaseUrl?.isNotBlank() == true -> model.providerBaseUrl
+            // Anything the connected gateway serves, it also proxies to the
+            // upstream provider — keep chat, memory, and sessions on one pipe
+            _connectionStatus.value is ConnectionStatus.Connected -> effectiveBaseUrl
             model?.provider?.contains("Ollama", ignoreCase = true) == true -> "http://127.0.0.1:11434/v1"
             model?.provider?.contains("Kimi", ignoreCase = true) == true -> "http://127.0.0.1:9000/v1"
             else -> effectiveBaseUrl
