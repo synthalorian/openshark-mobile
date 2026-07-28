@@ -25,7 +25,7 @@ class AgentRepository(context: Context) {
 
     private fun loadAgents() {
         val json = prefs.getString("agents_list", null)
-        val agents = if (json != null) {
+        var agents = if (json != null) {
             val type = object : TypeToken<List<Agent>>() {}.type
             gson.fromJson<List<Agent>>(json, type) ?: emptyList()
         } else {
@@ -34,6 +34,23 @@ class AgentRepository(context: Context) {
             saveAgents(defaults)
             defaults
         }
+        // Migration: built-in agents previously shipped with a hardcoded
+        // real name in the persona. Refresh any stale built-in persona from
+        // the current defaults (custom agents are untouched).
+        val defaults = Agent.getDefaults()
+        var migrated = false
+        agents = agents.map { agent ->
+            val fresh = defaults.firstOrNull { it.name == agent.name }
+            if (agent.isDefault && fresh != null &&
+                (agent.soul.contains("Carter") || agent.systemPrompt.contains("Carter"))
+            ) {
+                migrated = true
+                agent.copy(soul = fresh.soul, systemPrompt = fresh.systemPrompt)
+            } else {
+                agent
+            }
+        }
+        if (migrated) saveAgents(agents)
         _agents.value = agents
 
         // Load active agent
