@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -213,6 +214,15 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // Follow the conversation when the IME opens
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
     var showModelPicker by remember { mutableStateOf(false) }
     var showAgentModePicker by remember { mutableStateOf(false) }
 
@@ -346,6 +356,10 @@ fun ChatScreen(
             )
         },
         bottomBar = {
+            // imePadding: edge-to-edge means the Scaffold won't dodge the
+            // keyboard for us — lift the input bar so you can see what
+            // you're typing
+            Box(modifier = Modifier.imePadding()) {
             ChatInputBar(
                 onSend = { message ->
                     viewModel.handleInput(message)
@@ -358,6 +372,7 @@ fun ChatScreen(
                     else -> "Connect to send messages…"
                 }
             )
+            }
         }
     ) { padding ->
         Column(
