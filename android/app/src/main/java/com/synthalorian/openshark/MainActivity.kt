@@ -18,6 +18,7 @@ import com.synthalorian.openshark.ui.screens.AgentsScreen
 import com.synthalorian.openshark.ui.screens.ChatScreen
 import com.synthalorian.openshark.ui.screens.ModelsScreen
 import com.synthalorian.openshark.ui.screens.SettingsScreen
+import com.synthalorian.openshark.ui.screens.ShellScreen
 import com.synthalorian.openshark.ui.theme.OpenSharkTheme
 
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -45,7 +46,13 @@ class MainActivity : ComponentActivity() {
                                 viewModel = chatViewModel,
                                 onNavigateToSettings = { navController.navigate("settings") },
                                 onNavigateToModels = { navController.navigate("models") },
-                                onNavigateToAgents = { navController.navigate("agents") }
+                                onNavigateToAgents = { navController.navigate("agents") },
+                                onNavigateToShell = { navController.navigate("shell") }
+                            )
+                        }
+                        composable("shell") {
+                            ShellScreen(
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                         composable("settings") {

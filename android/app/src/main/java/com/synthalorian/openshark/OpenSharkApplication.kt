@@ -5,7 +5,11 @@ import android.content.Intent
 import android.provider.Settings
 import android.util.Log
 import com.synthalorian.openshark.service.AndroidBridgeService
+import com.synthalorian.openshark.service.GatewayManager
 import com.synthalorian.openshark.service.OpenSharkAccessibilityService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class OpenSharkApplication : Application() {
     
@@ -15,6 +19,11 @@ class OpenSharkApplication : Application() {
     
     override fun onCreate() {
         super.onCreate()
+        
+        // Start the embedded Rust gateway (no Termux required)
+        CoroutineScope(Dispatchers.Default).launch {
+            GatewayManager.start(this@OpenSharkApplication)
+        }
         
         // Start the Android Bridge Service (files, SMS, contacts, etc.)
         startBridgeService()

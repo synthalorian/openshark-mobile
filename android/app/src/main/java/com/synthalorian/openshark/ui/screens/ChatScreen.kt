@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
@@ -36,6 +37,7 @@ fun ChatScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToModels: () -> Unit,
     onNavigateToAgents: () -> Unit,
+    onNavigateToShell: () -> Unit = {},
 ) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -124,6 +126,11 @@ fun ChatScreen(
                     // Model Picker
                     IconButton(onClick = { showModelPicker = true }) {
                         Icon(Icons.Default.Build, contentDescription = "Switch Model")
+                    }
+                    
+                    // Shell
+                    IconButton(onClick = onNavigateToShell) {
+                        Text(">_", fontFamily = FontFamily.Monospace)
                     }
                     
                     // Settings

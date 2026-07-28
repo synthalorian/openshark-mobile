@@ -1,0 +1,35 @@
+[package]
+name = "openshark-gateway"
+version = "1.0.0"
+edition = "2021"
+description = "Standalone embedded OpenShark gateway for Android — no Termux, no external openshark dependency"
+license = "Apache-2.0"
+
+[lib]
+name = "openshark_gateway"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+futures = "0.3"
+async-stream = "0.3"
+rusqlite = { version = "0.37", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+jni = "0.21"
+android_logger = "0.15"
+log = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1

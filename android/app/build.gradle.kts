@@ -51,6 +51,62 @@ android {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Embedded Rust gateway (libopenshark_gateway.so) built via cargo-ndk
+// ---------------------------------------------------------------------------
+
+val rustGatewayDir = File(rootDir, "rust/gateway")
+val rustJniTargets = listOf("arm64-v8a", "x86_64")
+val jniLibsDir = File(projectDir, "src/main/jniLibs")
+
+tasks.register<Exec>("buildRustGateway") {
+    description = "Cross-compile the embedded Rust gateway for Android ABIs"
+    group = "build"
+
+    onlyIf {
+        val missing = rustJniTargets.any { abi ->
+            !File(jniLibsDir, "$abi/libopenshark_gateway.so").exists()
+        }
+        val force = project.hasProperty("forceRustBuild")
+        when {
+            force -> true
+            missing -> true
+            else -> {
+                // Rebuild if any Rust source is newer than the newest .so
+                val newestSo = rustJniTargets
+                    .map { File(jniLibsDir, "$it/libopenshark_gateway.so") }
+                    .filter { it.exists() }
+                    .maxOfOrNull { it.lastModified() } ?: 0L
+                val newestSrc = File(rustGatewayDir, "src").walkTopDown()
+                    .filter { it.extension == "rs" }
+                    .maxOfOrNull { it.lastModified() } ?: 0L
+                newestSrc > newestSo
+            }
+        }
+    }
+
+    doFirst {
+        if (!rustGatewayDir.exists()) {
+            throw GradleException("Rust gateway source not found at $rustGatewayDir")
+        }
+        logger.lifecycle("Building libopenshark_gateway.so for $rustJniTargets (needs cargo-ndk + NDK_HOME)")
+    }
+
+    commandLine(
+        "cargo", "ndk",
+        "--target", "arm64-v8a",
+        "--target", "x86_64",
+        "--platform", "28",
+        "--output-dir", jniLibsDir.absolutePath,
+        "build", "--release"
+    )
+    workingDir = rustGatewayDir
+}
+
+tasks.named("preBuild") {
+    dependsOn("buildRustGateway")
+}
+
 dependencies {
     // Android Core
     implementation(libs.androidx.core.ktx)
