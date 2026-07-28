@@ -29,6 +29,170 @@ import com.synthalorian.openshark.ui.viewmodel.AgentMode
 import com.synthalorian.openshark.ui.viewmodel.ChatViewModel
 import com.synthalorian.openshark.ui.viewmodel.Message
 import com.synthalorian.openshark.ui.viewmodel.ModelInfo
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun formatTokenCount(n: Long): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+    n >= 1_000 -> "%.1fk".format(n / 1_000.0)
+    else -> n.toString()
+}
+
+/** Slim status strip: connection · context usage · session id. */
+@Composable
+fun SessionStatusStrip(
+    viewModel: ChatViewModel,
+    currentModel: String,
+    connectionStatus: ChatViewModel.ConnectionStatus
+) {
+    val ctx by viewModel.sessionContext.collectAsState()
+    val sessionShort = viewModel.sessionId.take(8)
+    val (statusText, statusColor) = when (connectionStatus) {
+        is ChatViewModel.ConnectionStatus.Connected ->
+            (currentModel.ifBlank { "connected" }) to MaterialTheme.colorScheme.primary
+        is ChatViewModel.ConnectionStatus.Connecting ->
+            "connecting…" to MaterialTheme.colorScheme.tertiary
+        is ChatViewModel.ConnectionStatus.Waiting ->
+            "waiting for server…" to MaterialTheme.colorScheme.tertiary
+        is ChatViewModel.ConnectionStatus.Error ->
+            "offline" to MaterialTheme.colorScheme.error
+    }
+    val usedFraction = if (ctx.contextLength > 0)
+        (ctx.approxTokens.toFloat() / ctx.contextLength).coerceIn(0f, 1f) else 0f
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { viewModel.refreshSessionStats() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "●",
+                color = statusColor,
+                style = MaterialTheme.typography.labelSmall
+            )
+            Text(
+                statusText,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
+            Spacer(Modifier.weight(1f))
+            LinearProgressIndicator(
+                progress = { usedFraction },
+                modifier = Modifier
+                    .width(64.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = if (usedFraction > 0.85f) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                "${formatTokenCount(ctx.approxTokens)}/${formatTokenCount(ctx.contextLength)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "#$sessionShort",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** Session picker: past sessions from gateway memory + New Session. */
+@Composable
+fun SessionsDialog(
+    sessions: List<com.synthalorian.openshark.data.remote.SessionSummary>,
+    currentSessionId: String,
+    onSelect: (String) -> Unit,
+    onNew: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sessions") },
+        text = {
+            Column {
+                FilledTonalButton(onClick = onNew, modifier = Modifier.fillMaxWidth()) {
+                    Text("🆕 New Session")
+                }
+                Spacer(Modifier.height(8.dp))
+                if (sessions.isEmpty()) {
+                    Text(
+                        "No past sessions found.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                        items(sessions, key = { it.session_id }) { s ->
+                            val isCurrent = s.session_id == currentSessionId
+                            Surface(
+                                color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .clickable(enabled = !isCurrent) { onSelect(s.session_id) }
+                            ) {
+                                Column(Modifier.padding(10.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            "#${s.session_id.take(8)}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        if (isCurrent) {
+                                            Text(
+                                                "current",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Spacer(Modifier.weight(1f))
+                                        Text(
+                                            "${s.message_count} msgs",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (s.preview.isNotBlank()) {
+                                        Text(
+                                            s.preview.take(80),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 1,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        s.last_at.take(16).replace('T', ' '),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,30 +227,8 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        val titleText = activeAgent?.let { "${it.emoji} ${it.displayName}" } ?: "OpenShark 🦈"
-                        Text(titleText)
-                        Text(
-                            text = when (connectionStatus) {
-                                is ChatViewModel.ConnectionStatus.Connected -> 
-                                    "● $currentModel"
-                                is ChatViewModel.ConnectionStatus.Connecting -> 
-                                    if (isDiscovering) "Auto-discovering..." else "Connecting..."
-                                is ChatViewModel.ConnectionStatus.Waiting ->
-                                    "⏳ Waiting for server..."
-                                is ChatViewModel.ConnectionStatus.Error -> 
-                                    "● Offline"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = when (connectionStatus) {
-                                is ChatViewModel.ConnectionStatus.Connected -> 
-                                    MaterialTheme.colorScheme.primary
-                                is ChatViewModel.ConnectionStatus.Waiting ->
-                                    MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.error
-                            }
-                        )
-                    }
+                    val titleText = activeAgent?.let { "${it.emoji} ${it.displayName}" } ?: "OpenShark 🦈"
+                    Text(titleText, maxLines = 1)
                 },
                 actions = {
                     // Agent Switcher
@@ -164,6 +306,15 @@ fun ChatScreen(
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("🗂 Sessions") },
+                            leadingIcon = { Icon(Icons.Default.List, null) },
+                            onClick = {
+                                viewModel.refreshSessions()
+                                viewModel.showSessions = true
+                                viewModel.showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("📊 Export Chat") },
                             leadingIcon = { Icon(Icons.Default.Share, null) },
                             onClick = {
@@ -190,11 +341,15 @@ fun ChatScreen(
             )
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Status strip: connection · context usage · session id
+            SessionStatusStrip(viewModel = viewModel, currentModel = currentModel, connectionStatus = connectionStatus)
+
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -248,7 +403,25 @@ fun ChatScreen(
                     }
                 }
             }
+            }
         }
+    }
+
+    // Sessions picker dialog
+    if (viewModel.showSessions) {
+        SessionsDialog(
+            sessions = viewModel.sessions.collectAsState().value,
+            currentSessionId = viewModel.sessionId,
+            onSelect = { id ->
+                viewModel.loadSession(id)
+                viewModel.showSessions = false
+            },
+            onNew = {
+                viewModel.clearChat()
+                viewModel.showSessions = false
+            },
+            onDismiss = { viewModel.showSessions = false }
+        )
     }
 
     // Model Picker Dialog
@@ -445,6 +618,15 @@ fun MessageBubble(message: Message) {
                     }
                 }
             }
+
+            // Timestamp
+            Text(
+                text = SimpleDateFormat("HH:mm", Locale.getDefault())
+                    .format(Date(message.timestamp)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 6.dp)
+            )
         }
     }
 }

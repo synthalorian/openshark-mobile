@@ -318,6 +318,66 @@ async fn reload_config(State(state): State<Arc<AppState>>) -> Json<serde_json::V
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SessionQuery {
+    pub session_id: Option<String>,
+    #[serde(default = "default_session_limit")]
+    pub limit: usize,
+}
+
+fn default_session_limit() -> usize {
+    50
+}
+
+/// Full message history for a session (chronological) — for loading past chats.
+async fn session_messages(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SessionQuery>,
+) -> Json<serde_json::Value> {
+    let Some(sid) = q.session_id else {
+        return Json(serde_json::json!({ "error": "session_id required" }));
+    };
+    match state.memory.recent(&sid, q.limit) {
+        Ok(msgs) => Json(serde_json::to_value(msgs).unwrap()),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// Context usage for a session: message count + rough token estimate
+/// (~4 chars/token) against the model's context window.
+async fn session_stats(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SessionQuery>,
+) -> Json<serde_json::Value> {
+    let Some(sid) = q.session_id else {
+        return Json(serde_json::json!({ "error": "session_id required" }));
+    };
+    match state.memory.session_stats(&sid) {
+        Ok((messages, approx_tokens)) => {
+            let cfg = state.config.read().unwrap();
+            Json(serde_json::json!({
+                "session_id": sid,
+                "messages": messages,
+                "approx_tokens": approx_tokens,
+                "context_length": 128_000,
+                "default_model": cfg.default_model,
+            }))
+        }
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
+/// Distinct sessions, most recent first — for the session picker.
+async fn list_sessions(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SessionQuery>,
+) -> Json<serde_json::Value> {
+    match state.memory.list_sessions(q.limit) {
+        Ok(sessions) => Json(serde_json::to_value(sessions).unwrap()),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/health", get(health))
@@ -327,5 +387,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/memory", get(search_memory).post(save_memory))
         .route("/v1/tools/execute", post(execute_tool))
         .route("/v1/config/reload", post(reload_config))
+        .route("/v1/session/messages", get(session_messages))
+        .route("/v1/session/stats", get(session_stats))
+        .route("/v1/sessions", get(list_sessions))
         .with_state(state)
 }

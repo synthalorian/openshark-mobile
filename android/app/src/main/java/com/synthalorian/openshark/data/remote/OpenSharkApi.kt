@@ -32,6 +32,20 @@ interface OpenSharkApi {
 
     @GET("/v1/health")
     suspend fun healthCheck(): Response<Map<String, String>>
+
+    @GET("/v1/session/messages")
+    suspend fun getSessionMessages(
+        @Query("session_id") sessionId: String,
+        @Query("limit") limit: Int = 50
+    ): Response<List<MemoryMessage>>
+
+    @GET("/v1/session/stats")
+    suspend fun getSessionStats(
+        @Query("session_id") sessionId: String
+    ): Response<SessionStats>
+
+    @GET("/v1/sessions")
+    suspend fun getSessions(@Query("limit") limit: Int = 30): Response<List<SessionSummary>>
 }
 
 data class ChatRequest(
@@ -95,4 +109,19 @@ data class ToolExecuteResponse(
     val success: Boolean,
     val result: String,
     val error: String?
+)
+
+data class SessionStats(
+    val session_id: String,
+    val messages: Long,
+    val approx_tokens: Long,
+    val context_length: Long,
+    val default_model: String?
+)
+
+data class SessionSummary(
+    val session_id: String,
+    val message_count: Long,
+    val last_at: String,
+    val preview: String
 )

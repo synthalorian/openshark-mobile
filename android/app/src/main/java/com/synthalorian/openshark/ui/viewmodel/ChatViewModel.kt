@@ -26,7 +26,8 @@ data class Message(
     val role: String,
     val content: String,
     val isStreaming: Boolean = false,
-    val toolCall: ToolCallInfo? = null
+    val toolCall: ToolCallInfo? = null,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 data class ToolCallInfo(
@@ -142,8 +143,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     var showMenu by mutableStateOf(false)
     var showMemorySearch by mutableStateOf(false)
+    var showSessions by mutableStateOf(false)
 
-    private val sessionId = java.util.UUID.randomUUID().toString()
+    /** Current chat session id — regenerated on New Chat, swapped on session load. */
+    var sessionId = java.util.UUID.randomUUID().toString()
+        private set
+
+    data class SessionContext(
+        val approxTokens: Long = 0,
+        val contextLength: Long = 128_000,
+        val messages: Long = 0
+    )
+
+    private val _sessionContext = MutableStateFlow(SessionContext())
+    val sessionContext: StateFlow<SessionContext> = _sessionContext.asStateFlow()
+
+    private val _sessions = MutableStateFlow<List<com.synthalorian.openshark.data.remote.SessionSummary>>(emptyList())
+    val sessions: StateFlow<List<com.synthalorian.openshark.data.remote.SessionSummary>> = _sessions.asStateFlow()
 
     sealed class ConnectionStatus {
         object Connected : ConnectionStatus()
@@ -707,6 +723,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 _isLoading.value = false
+                refreshSessionStats()
 
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Chat error", e)
@@ -750,6 +767,71 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearChat() {
         _messages.value = emptyList()
+        sessionId = java.util.UUID.randomUUID().toString()
+        _sessionContext.value = SessionContext()
+    }
+
+    /** Refresh context-usage stats for the current session (after each turn). */
+    fun refreshSessionStats() {
+        viewModelScope.launch {
+            try {
+                val resp = api.getSessionStats(sessionId)
+                if (resp.isSuccessful) {
+                    resp.body()?.let { s ->
+                        _sessionContext.value = SessionContext(
+                            approxTokens = s.approx_tokens,
+                            contextLength = s.context_length,
+                            messages = s.messages
+                        )
+                    }
+                }
+            } catch (_: Exception) { /* stats are best-effort */ }
+        }
+    }
+
+    /** Fetch the session list for the picker dialog. */
+    fun refreshSessions() {
+        viewModelScope.launch {
+            try {
+                val resp = api.getSessions()
+                if (resp.isSuccessful) {
+                    _sessions.value = resp.body() ?: emptyList()
+                }
+            } catch (_: Exception) { /* ignore */ }
+        }
+    }
+
+    /** Switch to an existing session and load its history into the chat. */
+    fun loadSession(id: String) {
+        sessionId = id
+        _messages.value = emptyList()
+        viewModelScope.launch {
+            try {
+                val resp = api.getSessionMessages(id, 100)
+                if (resp.isSuccessful) {
+                    val loaded = resp.body()
+                        ?.filter { it.role == "user" || it.role == "assistant" }
+                        ?.map { m ->
+                            Message(
+                                role = m.role,
+                                content = m.content,
+                                timestamp = runCatching {
+                                    java.time.Instant.parse(m.created_at).toEpochMilli()
+                                }.getOrDefault(System.currentTimeMillis())
+                            )
+                        } ?: emptyList()
+                    _messages.value = loaded
+                    if (loaded.isEmpty()) {
+                        addSystemMessage("📂 Session `$id` — no messages found")
+                    }
+                } else {
+                    addSystemMessage("⚠ Failed to load session: HTTP ${resp.code()}")
+                }
+            } catch (e: Exception) {
+                addSystemMessage("⚠ Failed to load session: ${e.message}")
+            }
+            refreshSessionStats()
+        }
     }
 
     fun searchMemory(query: String, semantic: Boolean = true) {

@@ -98,4 +98,48 @@ impl MemoryStore {
         msgs.reverse(); // chronological
         Ok(msgs)
     }
+
+    /// Message count + rough token estimate (~4 chars/token) for a session.
+    pub fn session_stats(&self, session_id: &str) -> Result<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*), COALESCE(SUM(LENGTH(content)), 0)
+             FROM messages WHERE session_id = ?1 AND role IN ('user', 'assistant')",
+        )?;
+        let (count, chars): (i64, i64) =
+            stmt.query_row(params![session_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok((count, chars / 4))
+    }
+
+    /// Distinct sessions, most recent first, with message count + preview.
+    pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT session_id, COUNT(*) as n, MAX(created_at) as last_at,
+                    (SELECT content FROM messages m2
+                     WHERE m2.session_id = m.session_id
+                     ORDER BY created_at DESC LIMIT 1) as preview
+             FROM messages m
+             GROUP BY session_id
+             ORDER BY last_at DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(SessionSummary {
+                session_id: row.get(0)?,
+                message_count: row.get(1)?,
+                last_at: row.get(2)?,
+                preview: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub message_count: i64,
+    pub last_at: String,
+    pub preview: String,
 }
