@@ -24,6 +24,21 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Setup Rust toolchain (embedded gateway)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Locate NDK
+        run: |
+          NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* | sort -V | tail -1)
+          echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "Using NDK at $NDK_DIR"
+
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 

@@ -5,11 +5,8 @@ import android.content.Intent
 import android.provider.Settings
 import android.util.Log
 import com.synthalorian.openshark.service.AndroidBridgeService
-import com.synthalorian.openshark.service.GatewayManager
+import com.synthalorian.openshark.service.GatewayService
 import com.synthalorian.openshark.service.OpenSharkAccessibilityService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class OpenSharkApplication : Application() {
     
@@ -20,16 +17,25 @@ class OpenSharkApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         
-        // Start the embedded Rust gateway (no Termux required)
-        CoroutineScope(Dispatchers.Default).launch {
-            GatewayManager.start(this@OpenSharkApplication)
-        }
+        // Start the embedded gateway inside a foreground service so Android
+        // doesn't kill it when the activity leaves the foreground
+        startGatewayService()
         
         // Start the Android Bridge Service (files, SMS, contacts, etc.)
         startBridgeService()
         
         // Log accessibility service status
         checkAccessibilityService()
+    }
+    
+    private fun startGatewayService() {
+        try {
+            val intent = Intent(this, GatewayService::class.java)
+            startForegroundService(intent)
+            Log.i(TAG, "Started GatewayService (foreground)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start GatewayService", e)
+        }
     }
     
     private fun startBridgeService() {
