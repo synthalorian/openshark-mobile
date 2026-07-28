@@ -221,12 +221,12 @@ async fn chat(State(state): State<Arc<AppState>>, Json(body): Json<ChatRequestBo
             return;
         };
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         let provider2 = provider.clone();
         let model2 = model.clone();
         let handle = tokio::spawn(async move {
             provider::stream_chat(&provider2, &model2, &messages, move |delta| {
-                let _ = tx.blocking_send(delta);
+                let _ = tx.send(delta);
             })
             .await
         });
