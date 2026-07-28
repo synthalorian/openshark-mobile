@@ -273,21 +273,8 @@ fun ChatScreen(
                         }
                     }
                     
-                    // Model Picker
-                    IconButton(onClick = { showModelPicker = true }) {
-                        Icon(Icons.Default.Build, contentDescription = "Switch Model")
-                    }
-                    
-                    // Shell
-                    IconButton(onClick = onNavigateToShell) {
-                        Text(">_", fontFamily = FontFamily.Monospace)
-                    }
-                    
-                    // Settings
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                    
+                    // More Menu (model picker, shell, settings live here so the
+                    // agent name in the title actually gets width)
                     // More Menu
                     IconButton(onClick = { viewModel.showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
@@ -297,6 +284,30 @@ fun ChatScreen(
                         expanded = viewModel.showMenu,
                         onDismissRequest = { viewModel.showMenu = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("🔧 Switch Model") },
+                            leadingIcon = { Icon(Icons.Default.Build, null) },
+                            onClick = {
+                                showModelPicker = true
+                                viewModel.showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("💻 Shell") },
+                            leadingIcon = { Text(">_", fontFamily = FontFamily.Monospace) },
+                            onClick = {
+                                onNavigateToShell()
+                                viewModel.showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("⚙️ Settings") },
+                            leadingIcon = { Icon(Icons.Default.Settings, null) },
+                            onClick = {
+                                onNavigateToSettings()
+                                viewModel.showMenu = false
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("🆕 New Chat") },
                             leadingIcon = { Icon(Icons.Default.Add, null) },
