@@ -132,4 +132,4 @@ app/src/main/java/com/synthalorian/openshark/
 
 ## License
 
-Apache-2.0 — Made by synthalorian 🎹🤺 with synthclaw 🎹🦞
+Apache-2.0 — Made by synth with synthclaw 🎹🦞

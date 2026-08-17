@@ -348,7 +348,7 @@ cd android
 
 Apache-2.0 — The future of coding belongs to everyone.
 
-Made by synthalorian 🎹🤺 with synthclaw 🎹🦞
+Made by synth with synthclaw 🎹🦞
 
 ---
 
